@@ -60,7 +60,7 @@ import java.util.function.Function;
  */
 public abstract class PostAnalysisQueryProcessor<T> implements BuildTool.AnalysisPostProcessor {
 
-  private final QueryExpression queryExpression;
+  protected final QueryExpression queryExpression;
   protected final TargetPattern.Parser mainRepoTargetParser;
 
   PostAnalysisQueryProcessor(
@@ -70,14 +70,14 @@ public abstract class PostAnalysisQueryProcessor<T> implements BuildTool.Analysi
   }
 
   @Override
-  public void process(
+  public AnalysisResult process(
       BuildRequest request,
       CommandEnvironment env,
       BlazeRuntime runtime,
       AnalysisResult analysisResult)
       throws InterruptedException, ViewCreationFailedException, ExitException {
     if (queryExpression == null) {
-      return;
+      return analysisResult;
     }
 
     // This query will operate over the graph as constructed by analysis, but will also pick up
@@ -142,6 +142,7 @@ public abstract class PostAnalysisQueryProcessor<T> implements BuildTool.Analysi
                       ActionQuery.newBuilder().setCode(ActionQuery.Code.INCORRECT_ARGUMENTS))
                   .build()));
     }
+    return analysisResult;
   }
 
   protected abstract CommonQueryOptions getQueryOptions(CommandEnvironment env);
@@ -246,5 +247,38 @@ public abstract class PostAnalysisQueryProcessor<T> implements BuildTool.Analysi
     }
 
     queryRuntimeHelper.afterQueryOutputIsWritten();
+  }
+
+  /**
+   * Evaluates the given query expression against the post-analysis graph and returns the matched
+   * nodes, without producing any output. Used by {@code build --cquery} to collect the set of
+   * configured targets to build.
+   */
+  protected Set<T> evaluateQueryNodes(
+      BuildRequest request,
+      CommandEnvironment env,
+      TopLevelConfigurations topLevelConfigurations,
+      ImmutableMap<AspectKeyCreator.AspectKey, ConfiguredAspect> topLevelAspects,
+      Collection<SkyKey> transitiveConfigurationKeys,
+      QueryExpression queryExpression)
+      throws InterruptedException, QueryException, IOException {
+    WalkableGraph walkableGraph =
+        SkyframeExecutorWrappingWalkableGraph.of(env.getSkyframeExecutor());
+    ImmutableMap<String, BuildConfigurationValue> transitiveConfigurations =
+        getTransitiveConfigurations(transitiveConfigurationKeys, walkableGraph);
+
+    PostAnalysisQueryEnvironment<T> postAnalysisQueryEnvironment =
+        getQueryEnvironment(
+            request,
+            env,
+            topLevelConfigurations,
+            transitiveConfigurations,
+            topLevelAspects,
+            walkableGraph);
+
+    AggregateAllOutputFormatterCallback<T, Set<T>> aggregateResultsCallback =
+        QueryUtil.newOrderedAggregateAllOutputFormatterCallback(postAnalysisQueryEnvironment);
+    postAnalysisQueryEnvironment.evaluateQuery(queryExpression, aggregateResultsCallback);
+    return aggregateResultsCallback.getResult();
   }
 }

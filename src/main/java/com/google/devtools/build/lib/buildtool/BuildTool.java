@@ -157,11 +157,17 @@ public class BuildTool {
   private static final String SKYFRAME_MEMORY_DUMP_FILE = "skyframe_memory.json";
 
   private static final AnalysisPostProcessor NOOP_POST_PROCESSOR =
-      (unusedRequest, unusedEnv, unusedRuntime, unusedAnalysisResult) -> {};
+      (unusedRequest, unusedEnv, unusedRuntime, analysisResult) -> analysisResult;
 
-  /** Hook for inserting extra post-analysis-phase processing. Used for implementing {a,c}query. */
+  /**
+   * Hook for inserting extra post-analysis-phase processing. Used for implementing {a,c}query.
+   *
+   * <p>Returns the {@link AnalysisResult} to use for the execution phase. Implementations may
+   * return the same {@code analysisResult} unchanged, or a modified copy (e.g. with a filtered set
+   * of targets to build).
+   */
   public interface AnalysisPostProcessor {
-    void process(
+    AnalysisResult process(
         BuildRequest request,
         CommandEnvironment env,
         BlazeRuntime runtime,
@@ -564,12 +570,13 @@ public class BuildTool {
         }
 
         result.setBuildConfiguration(analysisResult.getConfiguration());
-        result.setActualTargets(analysisResult.getTargetsToBuild());
-        result.setTestTargets(analysisResult.getTargetsToTest());
 
         try (SilentCloseable c = Profiler.instance().profile("analysisPostProcessor.process")) {
-          analysisPostProcessor.process(request, env, runtime, analysisResult);
+          analysisResult = analysisPostProcessor.process(request, env, runtime, analysisResult);
         }
+
+        result.setActualTargets(analysisResult.getTargetsToBuild());
+        result.setTestTargets(analysisResult.getTargetsToTest());
 
         if (needsExecutionPhase(request.getBuildOptions())) {
           try (SilentCloseable closeable = Profiler.instance().profile("ExecutionTool.init")) {

@@ -415,6 +415,22 @@ public abstract class BuildRequestOptions extends OptionsBase {
               + "--target_pattern_file.")
   public abstract String getBuildQuery();
 
+  @Option(
+      name = "cquery",
+      defaultValue = "",
+      documentationCategory = OptionDocumentationCategory.GENERIC_INPUTS,
+      effectTags = {OptionEffectTag.CHANGES_INPUTS},
+      help =
+          "If set, build will analyze the universe of targets derived from the cquery expression"
+              + " (or from --universe_scope if provided), evaluate the cquery over the resulting"
+              + " configured-target graph, and build only the matching configured targets. Use"
+              + " --universe_scope to build a target in the configuration defined by a top-level"
+              + " target's transition, e.g. 'bazel build --cquery=//lib:lib"
+              + " --universe_scope=//:transitioned_top' builds //lib:lib in the configuration"
+              + " that //:transitioned_top applies to it. It is an error to specify a cquery here"
+              + " as well as command-line patterns, --target_pattern_file, or --query.")
+  public abstract String getBuildCquery();
+
   /**
    * Do not use directly. Instead use {@link
    * com.google.devtools.build.lib.runtime.CommandEnvironment#withMergedAnalysisAndExecutionSourceOfTruth()}.

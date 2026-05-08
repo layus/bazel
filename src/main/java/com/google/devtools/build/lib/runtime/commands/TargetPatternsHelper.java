@@ -63,8 +63,10 @@ public final class TargetPatternsHelper {
   /**
    * Reads a list of target patterns, either from the command-line residue, by reading newline
    * delimited target patterns from the --target_pattern_file flag, or by evaluating a query
-   * expression from the --query flag. If multiple sources are specified, or if reading fails,
-   * throws {@link TargetPatternsHelperException}.
+   * expression from the --query flag. Note that --cquery is handled separately by {@link
+   * com.google.devtools.build.lib.runtime.commands.BuildCommand} before this method is called; this
+   * method only validates that --cquery is not combined with another source. If multiple sources are
+   * specified, or if reading fails, throws {@link TargetPatternsHelperException}.
    */
   public static List<String> readFrom(CommandEnvironment env, OptionsParsingResult options)
       throws TargetPatternsHelperException {
@@ -72,16 +74,18 @@ public final class TargetPatternsHelper {
     BuildRequestOptions buildRequestOptions = options.getOptions(BuildRequestOptions.class);
     String queryExpression = buildRequestOptions.getBuildQuery();
     String targetPatternFile = buildRequestOptions.getTargetPatternFile();
+    String cqueryExpression = buildRequestOptions.getBuildCquery();
 
     // Check for conflicting options
     int sourcesSpecified =
         (targets.isEmpty() ? 0 : 1)
             + (targetPatternFile.isEmpty() ? 0 : 1)
-            + (queryExpression.isEmpty() ? 0 : 1);
+            + (queryExpression.isEmpty() ? 0 : 1)
+            + (cqueryExpression.isEmpty() ? 0 : 1);
     if (sourcesSpecified > 1) {
       throw new TargetPatternsHelperException(
-          "Only one of command-line target patterns, --target_pattern_file, or --query may be"
-              + " specified",
+          "Only one of command-line target patterns, --target_pattern_file, --query, or --cquery"
+              + " may be specified",
           TargetPatterns.Code.TARGET_PATTERN_FILE_WITH_COMMAND_LINE_PATTERN);
     }
 

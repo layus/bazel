@@ -112,8 +112,8 @@ public class TargetPatternsHelperTest {
             TargetPatternsHelperException.class, () -> TargetPatternsHelper.readFrom(env, options));
 
     String message =
-        "Only one of command-line target patterns, --target_pattern_file, or --query may be"
-            + " specified";
+        "Only one of command-line target patterns, --target_pattern_file, --query, or --cquery"
+            + " may be specified";
     assertThat(expected).hasMessageThat().isEqualTo(message);
     assertThat(expected.getFailureDetail())
         .isEqualTo(
@@ -153,8 +153,8 @@ public class TargetPatternsHelperTest {
     assertThat(expected)
         .hasMessageThat()
         .isEqualTo(
-            "Only one of command-line target patterns, --target_pattern_file, or --query may be"
-                + " specified");
+            "Only one of command-line target patterns, --target_pattern_file, --query, or --cquery"
+                + " may be specified");
     assertThat(expected.getFailureDetail().getTargetPatterns().getCode())
         .isEqualTo(Code.TARGET_PATTERN_FILE_WITH_COMMAND_LINE_PATTERN);
   }
@@ -170,8 +170,60 @@ public class TargetPatternsHelperTest {
     assertThat(expected)
         .hasMessageThat()
         .isEqualTo(
-            "Only one of command-line target patterns, --target_pattern_file, or --query may be"
-                + " specified");
+            "Only one of command-line target patterns, --target_pattern_file, --query, or --cquery"
+                + " may be specified");
+    assertThat(expected.getFailureDetail().getTargetPatterns().getCode())
+        .isEqualTo(Code.TARGET_PATTERN_FILE_WITH_COMMAND_LINE_PATTERN);
+  }
+
+  @Test
+  public void testSpecifyCqueryAndPatternThrows() throws OptionsParsingException {
+    options.parse("--cquery=deps(//foo:bar)");
+    options.setResidue(ImmutableList.of("//some:pattern"), ImmutableList.of());
+
+    TargetPatternsHelperException expected =
+        assertThrows(
+            TargetPatternsHelperException.class, () -> TargetPatternsHelper.readFrom(env, options));
+
+    assertThat(expected)
+        .hasMessageThat()
+        .isEqualTo(
+            "Only one of command-line target patterns, --target_pattern_file, --query, or --cquery"
+                + " may be specified");
+    assertThat(expected.getFailureDetail().getTargetPatterns().getCode())
+        .isEqualTo(Code.TARGET_PATTERN_FILE_WITH_COMMAND_LINE_PATTERN);
+  }
+
+  @Test
+  public void testSpecifyCqueryAndFileThrows() throws OptionsParsingException {
+    options.parse("--cquery=deps(//foo:bar)", "--target_pattern_file=patterns.txt");
+
+    TargetPatternsHelperException expected =
+        assertThrows(
+            TargetPatternsHelperException.class, () -> TargetPatternsHelper.readFrom(env, options));
+
+    assertThat(expected)
+        .hasMessageThat()
+        .isEqualTo(
+            "Only one of command-line target patterns, --target_pattern_file, --query, or --cquery"
+                + " may be specified");
+    assertThat(expected.getFailureDetail().getTargetPatterns().getCode())
+        .isEqualTo(Code.TARGET_PATTERN_FILE_WITH_COMMAND_LINE_PATTERN);
+  }
+
+  @Test
+  public void testSpecifyCqueryAndQueryThrows() throws OptionsParsingException {
+    options.parse("--cquery=deps(//foo:bar)", "--query=//foo:bar");
+
+    TargetPatternsHelperException expected =
+        assertThrows(
+            TargetPatternsHelperException.class, () -> TargetPatternsHelper.readFrom(env, options));
+
+    assertThat(expected)
+        .hasMessageThat()
+        .isEqualTo(
+            "Only one of command-line target patterns, --target_pattern_file, --query, or --cquery"
+                + " may be specified");
     assertThat(expected.getFailureDetail().getTargetPatterns().getCode())
         .isEqualTo(Code.TARGET_PATTERN_FILE_WITH_COMMAND_LINE_PATTERN);
   }

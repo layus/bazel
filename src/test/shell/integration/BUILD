@@ -826,6 +826,15 @@ sh_test(
 )
 
 sh_test(
+    name = "build_query_test",
+    srcs = ["build_query_test.sh"],
+    data = [
+        ":test-deps",
+        "@bazel_tools//tools/bash/runfiles",
+    ],
+)
+
+sh_test(
     name = "target_compatible_with_test",
     timeout = "long",
     srcs = ["target_compatible_with_test.sh"],

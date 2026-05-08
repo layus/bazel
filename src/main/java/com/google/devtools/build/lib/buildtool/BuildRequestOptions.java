@@ -431,6 +431,21 @@ public abstract class BuildRequestOptions extends OptionsBase {
               + " as well as command-line patterns, --target_pattern_file, or --query.")
   public abstract String getBuildCquery();
 
+  @Option(
+      name = "aquery",
+      defaultValue = "",
+      documentationCategory = OptionDocumentationCategory.GENERIC_INPUTS,
+      effectTags = {OptionEffectTag.CHANGES_INPUTS},
+      help =
+          "If set, build will analyze the universe of targets derived from the aquery expression"
+              + " (or from --universe_scope if provided), build those targets, then evaluate the"
+              + " aquery over the resulting action graph and print matching actions to stdout."
+              + " Accepts the same expression syntax as the 'aquery' command, including filter"
+              + " functions such as inputs(), outputs(), and mnemonic(). It is an error to specify"
+              + " an aquery here as well as command-line patterns, --target_pattern_file, --query,"
+              + " or --cquery.")
+  public abstract String getBuildAquery();
+
   /**
    * Do not use directly. Instead use {@link
    * com.google.devtools.build.lib.runtime.CommandEnvironment#withMergedAnalysisAndExecutionSourceOfTruth()}.

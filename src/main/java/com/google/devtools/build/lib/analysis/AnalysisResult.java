@@ -156,6 +156,29 @@ public class AnalysisResult {
   }
 
   /**
+   * Returns an equivalent {@link AnalysisResult} with {@code targetsToBuild} replaced by the given
+   * set. Used by {@code build --cquery} to restrict the execution phase to only cquery-matched
+   * configured targets.
+   */
+  public AnalysisResult withFilteredTargets(ImmutableSet<ConfiguredTarget> filteredTargets) {
+    return new AnalysisResult(
+        configuration,
+        filteredTargets,
+        aspects,
+        targetsToTest,
+        targetsToSkip,
+        failureDetail,
+        actionGraph,
+        artifactsToBuild,
+        parallelTests,
+        exclusiveTests,
+        exclusiveIfLocalTests,
+        topLevelContext,
+        packageRoots,
+        topLevelTargetsWithConfigs);
+  }
+
+  /**
    * Returns an equivalent {@link AnalysisResult}, except with exclusive tests treated as parallel
    * tests.
    */

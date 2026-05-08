@@ -112,7 +112,8 @@ public class TargetPatternsHelperTest {
             TargetPatternsHelperException.class, () -> TargetPatternsHelper.readFrom(env, options));
 
     String message =
-        "Command-line target pattern and --target_pattern_file cannot both be specified";
+        "Only one of command-line target patterns, --target_pattern_file, or --query may be"
+            + " specified";
     assertThat(expected).hasMessageThat().isEqualTo(message);
     assertThat(expected.getFailureDetail())
         .isEqualTo(
@@ -138,6 +139,41 @@ public class TargetPatternsHelperTest {
     assertThat(expected.getFailureDetail().hasTargetPatterns()).isTrue();
     assertThat(expected.getFailureDetail().getTargetPatterns().getCode())
         .isEqualTo(Code.TARGET_PATTERN_FILE_READ_FAILURE);
+  }
+
+  @Test
+  public void testSpecifyQueryAndPatternThrows() throws OptionsParsingException {
+    options.parse("--query=deps(//foo:bar)");
+    options.setResidue(ImmutableList.of("//some:pattern"), ImmutableList.of());
+
+    TargetPatternsHelperException expected =
+        assertThrows(
+            TargetPatternsHelperException.class, () -> TargetPatternsHelper.readFrom(env, options));
+
+    assertThat(expected)
+        .hasMessageThat()
+        .isEqualTo(
+            "Only one of command-line target patterns, --target_pattern_file, or --query may be"
+                + " specified");
+    assertThat(expected.getFailureDetail().getTargetPatterns().getCode())
+        .isEqualTo(Code.TARGET_PATTERN_FILE_WITH_COMMAND_LINE_PATTERN);
+  }
+
+  @Test
+  public void testSpecifyQueryAndFileThrows() throws OptionsParsingException {
+    options.parse("--query=deps(//foo:bar)", "--target_pattern_file=patterns.txt");
+
+    TargetPatternsHelperException expected =
+        assertThrows(
+            TargetPatternsHelperException.class, () -> TargetPatternsHelper.readFrom(env, options));
+
+    assertThat(expected)
+        .hasMessageThat()
+        .isEqualTo(
+            "Only one of command-line target patterns, --target_pattern_file, or --query may be"
+                + " specified");
+    assertThat(expected.getFailureDetail().getTargetPatterns().getCode())
+        .isEqualTo(Code.TARGET_PATTERN_FILE_WITH_COMMAND_LINE_PATTERN);
   }
 
   private static class MockEventBus extends EventBus {

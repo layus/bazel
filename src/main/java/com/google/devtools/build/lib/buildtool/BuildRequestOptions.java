@@ -404,6 +404,17 @@ public abstract class BuildRequestOptions extends OptionsBase {
               + "line. It is an error to specify a file here as well as command-line patterns.")
   public abstract String getTargetPatternFile();
 
+  @Option(
+      name = "query",
+      defaultValue = "",
+      documentationCategory = OptionDocumentationCategory.GENERIC_INPUTS,
+      effectTags = {OptionEffectTag.CHANGES_INPUTS},
+      help =
+          "If set, build will evaluate the given query expression and build the resulting targets. "
+              + "It is an error to specify a query here as well as command-line patterns or "
+              + "--target_pattern_file.")
+  public abstract String getBuildQuery();
+
   /**
    * Do not use directly. Instead use {@link
    * com.google.devtools.build.lib.runtime.CommandEnvironment#withMergedAnalysisAndExecutionSourceOfTruth()}.

@@ -22,11 +22,8 @@ import com.google.devtools.build.lib.cmdline.RepositoryName;
 import com.google.devtools.build.lib.cmdline.TargetPattern;
 import com.google.devtools.build.lib.cmdline.TargetPattern.Parser;
 import com.google.devtools.build.lib.events.Event;
-import com.google.devtools.build.lib.query2.engine.AllPathsFunction;
-import com.google.devtools.build.lib.query2.engine.FunctionExpression;
 import com.google.devtools.build.lib.query2.engine.QueryException;
 import com.google.devtools.build.lib.query2.engine.QueryExpression;
-import com.google.devtools.build.lib.query2.engine.SomePathFunction;
 import com.google.devtools.build.lib.runtime.BlazeCommandResult;
 import com.google.devtools.build.lib.runtime.CommandEnvironment;
 import com.google.devtools.build.lib.runtime.KeepGoingOption;
@@ -36,7 +33,6 @@ import com.google.devtools.build.lib.skyframe.RepositoryMappingValue.RepositoryM
 import com.google.devtools.build.lib.skyframe.serialization.DeserializedSkyValue;
 import com.google.devtools.build.lib.util.InterruptedFailureDetails;
 import com.google.devtools.common.options.OptionsParsingResult;
-import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -78,7 +74,13 @@ public final class QueryCommandUtils {
       String interruptedMessagePrefix)
       throws RepoMappingException {
     try {
-      return resolveMainRepoTargetParser(env, options);
+      RepositoryMapping repoMapping =
+          env.getSkyframeExecutor()
+              .getMainRepoMapping(
+                  options.getOptions(KeepGoingOption.class).getKeepGoing(),
+                  options.getOptions(LoadingPhaseThreadsOption.class).getThreads(),
+                  env.getReporter());
+      return new Parser(env.getRelativeWorkingDirectory(), RepositoryName.MAIN, repoMapping);
     } catch (RepositoryMappingResolutionException e) {
       env.getReporter().handle(Event.error(e.getMessage()));
       throw new RepoMappingException(BlazeCommandResult.detailedExitCode(e.getDetailedExitCode()));
@@ -95,60 +97,17 @@ public final class QueryCommandUtils {
   }
 
   /**
-   * Holds the result of {@link #deriveCqueryUniverseScope}: the list of top-level targets to
-   * analyze and (for somepath/allpaths expressions) an optional narrowed list to use for project
-   * resolution.
-   */
-  static final class CqueryUniverseScope {
-    final ImmutableList<String> targets;
-    @Nullable final ImmutableList<String> targetsForProjectResolution;
-
-    private CqueryUniverseScope(
-        ImmutableList<String> targets,
-        @Nullable ImmutableList<String> targetsForProjectResolution) {
-      this.targets = targets;
-      this.targetsForProjectResolution = targetsForProjectResolution;
-    }
-  }
-
-  /**
    * Derives the universe-scope target list for a cquery-style command from the explicit universe
-   * scope and the query expression, applying path-function narrowing for project resolution when
-   * appropriate.
+   * scope and the query expression.
    */
-  static CqueryUniverseScope deriveCqueryUniverseScope(
+  static ImmutableList<String> deriveCqueryUniverseScope(
       List<String> explicitUniverseScope, QueryExpression expr) {
-    List<String> targets = explicitUniverseScope;
-    ImmutableList<String> targetsForProjectResolution = null;
-    if (targets.isEmpty()) {
-      LinkedHashSet<String> targetPatternSet = new LinkedHashSet<>();
-      expr.collectTargetPatterns(targetPatternSet);
-      targets = new ArrayList<>(targetPatternSet);
-      if (expr instanceof FunctionExpression functionExpr
-          && (functionExpr.getFunction() instanceof SomePathFunction
-              || functionExpr.getFunction() instanceof AllPathsFunction)) {
-        targetsForProjectResolution = ImmutableList.of(targetPatternSet.getFirst());
-      }
+    if (!explicitUniverseScope.isEmpty()) {
+      return ImmutableList.copyOf(explicitUniverseScope);
     }
-    return new CqueryUniverseScope(ImmutableList.copyOf(targets), targetsForProjectResolution);
-  }
-
-  /**
-   * Resolves the main-repo {@link TargetPattern.Parser} for cquery/aquery processing.
-   *
-   * @throws RepositoryMappingResolutionException if the main-repo mapping cannot be resolved
-   * @throws InterruptedException if the resolution is interrupted
-   */
-  static TargetPattern.Parser resolveMainRepoTargetParser(
-      CommandEnvironment env, OptionsParsingResult options)
-      throws RepositoryMappingResolutionException, InterruptedException {
-    RepositoryMapping repoMapping =
-        env.getSkyframeExecutor()
-            .getMainRepoMapping(
-                options.getOptions(KeepGoingOption.class).getKeepGoing(),
-                options.getOptions(LoadingPhaseThreadsOption.class).getThreads(),
-                env.getReporter());
-    return new Parser(env.getRelativeWorkingDirectory(), RepositoryName.MAIN, repoMapping);
+    LinkedHashSet<String> targetPatternSet = new LinkedHashSet<>();
+    expr.collectTargetPatterns(targetPatternSet);
+    return ImmutableList.copyOf(targetPatternSet);
   }
 
   private QueryCommandUtils() {}

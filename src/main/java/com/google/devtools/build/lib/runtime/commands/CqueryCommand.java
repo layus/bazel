@@ -18,12 +18,10 @@ import static com.google.devtools.build.lib.runtime.Command.BuildPhase.ANALYZES;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.devtools.build.lib.analysis.config.CoreOptions.IncludeConfigFragmentsEnum;
-import com.google.devtools.build.lib.buildtool.BuildCqueryProcessor;
 import com.google.devtools.build.lib.buildtool.BuildRequest;
 import com.google.devtools.build.lib.buildtool.BuildTool;
 import com.google.devtools.build.lib.buildtool.CqueryProcessor;
 import com.google.devtools.build.lib.cmdline.TargetPattern;
-import com.google.devtools.build.lib.util.io.OutErr;
 import com.google.devtools.build.lib.query2.cquery.ConfiguredTargetQueryEnvironment;
 import com.google.devtools.build.lib.query2.cquery.CqueryOptions;
 import com.google.devtools.build.lib.query2.engine.QueryEnvironment.QueryFunction;
@@ -32,18 +30,15 @@ import com.google.devtools.build.lib.query2.engine.QueryExpression;
 import com.google.devtools.build.lib.runtime.BlazeCommandResult;
 import com.google.devtools.build.lib.runtime.Command;
 import com.google.devtools.build.lib.runtime.CommandEnvironment;
-import com.google.devtools.build.lib.runtime.commands.QueryCommandHandler.QueryProcessor;
-import com.google.devtools.build.lib.runtime.commands.QueryCommandHandler.QueryScopeException;
-import com.google.devtools.build.lib.runtime.commands.QueryCommandHandler.UniverseScope;
-import com.google.devtools.build.lib.runtime.commands.QueryCommandUtils.CqueryUniverseScope;
+import com.google.devtools.build.lib.runtime.commands.QueryCommandHandler.QuerySetupException;
 import com.google.devtools.build.lib.server.FailureDetails.ConfigurableQuery;
 import com.google.devtools.build.lib.server.FailureDetails.ConfigurableQuery.Code;
 import com.google.devtools.build.lib.server.FailureDetails.FailureDetail;
-import com.google.devtools.build.lib.util.DetailedExitCode;
 import com.google.devtools.common.options.OptionPriority.PriorityCategory;
 import com.google.devtools.common.options.OptionsParser;
 import com.google.devtools.common.options.OptionsParsingException;
 import com.google.devtools.common.options.OptionsParsingResult;
+import java.util.List;
 
 /** Handles the 'cquery' command on the Blaze command line. */
 @Command(
@@ -114,44 +109,22 @@ public final class CqueryCommand implements QueryCommandHandler {
   }
 
   @Override
-  public UniverseScope deriveUniverseScope(
-      OptionsParsingResult options, QueryExpression expr, CommandEnvironment env)
-      throws QueryScopeException {
-    CqueryUniverseScope scope =
-        QueryCommandUtils.deriveCqueryUniverseScope(
-            options.getOptions(CqueryOptions.class).getUniverseScope(), expr);
-    return new UniverseScope(scope.targets, scope.targetsForProjectResolution);
+  public List<String> deriveUniverseTargets(
+      CommandEnvironment env, OptionsParsingResult options, QueryExpression expr)
+      throws QuerySetupException {
+    return QueryCommandUtils.deriveCqueryUniverseScope(
+        options.getOptions(CqueryOptions.class).getUniverseScope(), expr);
   }
 
   @Override
   public BuildTool.AnalysisPostProcessor createStandaloneProcessor(
       QueryExpression expr, TargetPattern.Parser parser, CommandEnvironment env)
-      throws QueryScopeException {
+      throws QuerySetupException {
     return new CqueryProcessor(expr, parser);
   }
 
   @Override
-  public BlazeCommandResult runWithProcessor(
-      CommandEnvironment env,
-      BuildTool.AnalysisPostProcessor processor,
-      BuildRequest request,
-      OptionsParsingResult options,
-      UniverseScope universeScope,
-      QueryProcessor queryProcessor) {
-    DetailedExitCode detailedExitCode =
-        new BuildTool(env, processor)
-            .processRequest(
-                request,
-                /* validator= */ null,
-                /* postBuildCallback= */ null,
-                options,
-                universeScope.targetsForProjectResolution())
-            .getDetailedExitCode();
-    return BlazeCommandResult.detailedExitCode(detailedExitCode);
-  }
-
-  @Override
-  public void customizeStandaloneRequestBuilder(BuildRequest.Builder builder) {
+  public void customizeStandaloneRequest(BuildRequest.Builder builder) {
     builder.setCheckforActionConflicts(false).setReportIncompatibleTargets(false);
   }
 
@@ -176,36 +149,6 @@ public final class CqueryCommand implements QueryCommandHandler {
             .setMessage(message)
             .setConfigurableQuery(ConfigurableQuery.newBuilder().setCode(detailedCode))
             .build());
-  }
-
-  @Override
-  public QueryProcessor createQueryProcessor(CommandEnvironment env) {
-    return new QueryProcessor() {
-      @Override
-      public java.util.List<String> deriveUniverseTargets(
-          java.util.List<String> explicitScope, QueryExpression expr)
-          throws ProcessorCreationException {
-        return QueryCommandUtils.deriveCqueryUniverseScope(explicitScope, expr).targets;
-      }
-
-      @Override
-      public void customizeRequestBuilder(BuildRequest.Builder builder) {
-        builder.setCheckforActionConflicts(false).setReportIncompatibleTargets(false);
-      }
-
-      @Override
-      public BuildTool.AnalysisPostProcessor createAnalysisPostProcessor(
-          QueryExpression expr, TargetPattern.Parser parser)
-          throws ProcessorCreationException {
-        return new BuildCqueryProcessor(expr, parser);
-      }
-
-      @Override
-      public void prepareOptions(OptionsParsingResult options) {}
-
-      @Override
-      public void onBuildSuccess(BuildTool.AnalysisPostProcessor processor, OutErr outErr) {}
-    };
   }
 
   static ImmutableMap<String, QueryFunction> getCqueryFunctionsMap(CommandEnvironment env) {

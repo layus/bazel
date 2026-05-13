@@ -15,12 +15,18 @@ package com.google.devtools.build.lib.runtime.commands;
 
 import static com.google.devtools.build.lib.runtime.Command.BuildPhase.EXECUTES;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.devtools.build.lib.analysis.AnalysisOptions;
 import com.google.devtools.build.lib.buildeventstream.BuildEventProtocolOptions;
+import com.google.devtools.build.lib.buildtool.AqueryProcessor.AqueryActionFilterException;
+import com.google.devtools.build.lib.buildtool.BuildAqueryProcessor;
+import com.google.devtools.build.lib.buildtool.BuildCqueryProcessor;
 import com.google.devtools.build.lib.buildtool.BuildRequest;
 import com.google.devtools.build.lib.buildtool.BuildRequestOptions;
+import com.google.devtools.build.lib.buildtool.BuildResult;
 import com.google.devtools.build.lib.buildtool.BuildTool;
+import com.google.devtools.build.lib.cmdline.TargetPattern;
 import com.google.devtools.build.lib.events.Event;
 import com.google.devtools.build.lib.exec.ExecutionOptions;
 import com.google.devtools.build.lib.exec.local.LocalExecutionOptions;
@@ -28,7 +34,12 @@ import com.google.devtools.build.lib.pkgcache.LoadingOptions;
 import com.google.devtools.build.lib.pkgcache.PackageOptions;
 import com.google.devtools.build.lib.profiler.Profiler;
 import com.google.devtools.build.lib.profiler.SilentCloseable;
+import com.google.devtools.build.lib.query2.aquery.AqueryOptions;
 import com.google.devtools.build.lib.query2.cquery.CqueryOptions;
+import com.google.devtools.build.lib.query2.engine.QueryException;
+import com.google.devtools.build.lib.query2.engine.QueryExpression;
+import com.google.devtools.build.lib.query2.engine.QueryParser;
+import com.google.devtools.build.lib.query2.engine.QuerySyntaxException;
 import com.google.devtools.build.lib.runtime.BlazeCommand;
 import com.google.devtools.build.lib.runtime.BlazeCommandResult;
 import com.google.devtools.build.lib.runtime.BlazeRuntime;
@@ -36,12 +47,12 @@ import com.google.devtools.build.lib.runtime.Command;
 import com.google.devtools.build.lib.runtime.CommandEnvironment;
 import com.google.devtools.build.lib.runtime.KeepGoingOption;
 import com.google.devtools.build.lib.runtime.LoadingPhaseThreadsOption;
+import com.google.devtools.build.lib.server.FailureDetails.ActionQuery;
 import com.google.devtools.build.lib.server.FailureDetails.ConfigurableQuery;
 import com.google.devtools.build.lib.server.FailureDetails.ConfigurableQuery.Code;
 import com.google.devtools.build.lib.server.FailureDetails.FailureDetail;
 import com.google.devtools.build.lib.skyframe.SkyfocusOptions;
 import com.google.devtools.build.lib.skyframe.serialization.analysis.RemoteAnalysisCachingOptions;
-import com.google.devtools.build.lib.util.DetailedExitCode;
 import com.google.devtools.common.options.OptionPriority.PriorityCategory;
 import com.google.devtools.common.options.OptionsParser;
 import com.google.devtools.common.options.OptionsParsingException;
@@ -95,13 +106,9 @@ public final class BuildCommand implements BlazeCommand {
     }
   }
 
-  private static final AqueryCommand AQUERY_HANDLER = new AqueryCommand();
-  private static final CqueryCommand CQUERY_HANDLER = new CqueryCommand();
-
   @Override
   public BlazeCommandResult exec(CommandEnvironment env, OptionsParsingResult options) {
     BlazeRuntime runtime = env.getRuntime();
-
     BuildRequestOptions buildRequestOptions = options.getOptions(BuildRequestOptions.class);
     String cqueryExpression = buildRequestOptions.getBuildCquery();
     String aqueryExpression = buildRequestOptions.getBuildAquery();
@@ -124,58 +131,150 @@ public final class BuildCommand implements BlazeCommand {
                   ConfigurableQuery.newBuilder().setCode(Code.EXPRESSION_PARSE_FAILURE))
               .build());
     }
-    if (!cqueryExpression.isEmpty()) {
-      return CQUERY_HANDLER.query(
-          env,
-          options,
-          cqueryExpression,
-          "Interrupted while resolving repository mapping for --" + CQUERY_HANDLER.getQueryType());
-    }
-    if (!aqueryExpression.isEmpty()) {
-      return AQUERY_HANDLER.query(
-          env,
-          options,
-          aqueryExpression,
-          "Interrupted while resolving repository mapping for --" + AQUERY_HANDLER.getQueryType());
-    }
+
+    BuildRequest.Builder requestBuilder =
+        BuildRequest.builder()
+            .setCommandName(getClass().getAnnotation(Command.class).name())
+            .setId(env.getCommandId())
+            .setOptions(options)
+            .setStartupOptions(runtime.getStartupOptionsProvider())
+            .setOutErr(env.getReporter().getOutErr())
+            .setStartTimeMillis(env.getCommandStartTime());
 
     List<String> targets;
-    try {
-      targets = TargetPatternsHelper.readFrom(env, options);
-    } catch (TargetPatternsHelper.TargetPatternsHelperException e) {
-      env.getReporter().handle(Event.error(e.getMessage()));
-      return BlazeCommandResult.failureDetail(e.getFailureDetail());
-    }
-    if (targets.isEmpty()) {
-      env.getReporter()
-          .handle(
-              Event.warn(
-                  "Usage: "
-                      + runtime.getProductName()
-                      + " build <options> <targets>."
-                      + "\nInvoke `"
-                      + runtime.getProductName()
-                      + " help build` for full description of usage and options."
-                      + "\nYour request is correct, but requested an empty set of targets."
-                      + " Nothing will be built."));
+    BuildTool.AnalysisPostProcessor processor = null;
+
+    if (!cqueryExpression.isEmpty()) {
+      TargetPattern.Parser mainRepoTargetParser;
+      try {
+        mainRepoTargetParser =
+            QueryCommandUtils.resolveMainRepoTargetParserOrReport(
+                env, options, "Interrupted while resolving repository mapping for --cquery");
+      } catch (QueryCommandUtils.RepoMappingException e) {
+        return e.getResult();
+      }
+      QueryExpression expr;
+      try {
+        expr = QueryParser.parse(cqueryExpression, CqueryCommand.getCqueryFunctionsMap(env));
+      } catch (QuerySyntaxException e) {
+        String message =
+            String.format(
+                "Error while parsing --cquery '%s': %s",
+                QueryExpression.truncate(cqueryExpression), e.getMessage());
+        env.getReporter().handle(Event.error(message));
+        return BlazeCommandResult.failureDetail(
+            FailureDetail.newBuilder()
+                .setMessage(message)
+                .setConfigurableQuery(
+                    ConfigurableQuery.newBuilder().setCode(Code.EXPRESSION_PARSE_FAILURE))
+                .build());
+      }
+      targets =
+          QueryCommandUtils.deriveCqueryUniverseScope(
+              options.getOptions(CqueryOptions.class).getUniverseScope(), expr);
+      processor = new BuildCqueryProcessor(expr, mainRepoTargetParser);
+      requestBuilder.setCheckforActionConflicts(false).setReportIncompatibleTargets(false);
+
+    } else if (!aqueryExpression.isEmpty()) {
+      TargetPattern.Parser mainRepoTargetParser;
+      try {
+        mainRepoTargetParser =
+            QueryCommandUtils.resolveMainRepoTargetParserOrReport(
+                env, options, "Interrupted while resolving repository mapping for --aquery");
+      } catch (QueryCommandUtils.RepoMappingException e) {
+        return e.getResult();
+      }
+      QueryExpression expr;
+      try {
+        expr = QueryParser.parse(aqueryExpression, AqueryCommand.getAqueryFunctionsMap(env));
+      } catch (QuerySyntaxException e) {
+        String message =
+            String.format(
+                "Error while parsing --aquery '%s': %s",
+                QueryExpression.truncate(aqueryExpression), e.getMessage());
+        env.getReporter().handle(Event.error(message));
+        return BlazeCommandResult.failureDetail(
+            FailureDetail.newBuilder()
+                .setMessage(message)
+                .setActionQuery(
+                    ActionQuery.newBuilder().setCode(ActionQuery.Code.EXPRESSION_PARSE_FAILURE))
+                .build());
+      }
+      List<String> aqueryTargets;
+      try {
+        aqueryTargets =
+            QueryCommandUtils.getTopLevelTargets(
+                options.getOptions(AqueryOptions.class).getUniverseScope(),
+                expr,
+                /* queryCurrentSkyframeState= */ false);
+      } catch (QueryException e) {
+        String message = Strings.nullToEmpty(e.getMessage());
+        env.getReporter().handle(Event.error(message));
+        return BlazeCommandResult.failureDetail(
+            FailureDetail.newBuilder()
+                .setMessage(message)
+                .setActionQuery(
+                    ActionQuery.newBuilder().setCode(ActionQuery.Code.INCORRECT_ARGUMENTS))
+                .build());
+      }
+      BuildAqueryProcessor aqueryProcessor;
+      try {
+        aqueryProcessor = new BuildAqueryProcessor(expr, mainRepoTargetParser);
+      } catch (AqueryActionFilterException e) {
+        String message = e.getMessage() + "\n" + expr;
+        env.getReporter().handle(Event.error(message));
+        return BlazeCommandResult.failureDetail(
+            FailureDetail.newBuilder()
+                .setMessage(message)
+                .setActionQuery(
+                    ActionQuery.newBuilder().setCode(ActionQuery.Code.INVALID_AQUERY_EXPRESSION))
+                .build());
+      }
+      try {
+        ((OptionsParser) options)
+            .parse(
+                PriorityCategory.SOFTWARE_REQUIREMENT,
+                "build --aquery suppresses the default target result printer",
+                ImmutableList.of("--show_result=0"));
+      } catch (OptionsParsingException e) {
+        throw new IllegalStateException("build --aquery failed to set --show_result=0", e);
+      }
+      targets = aqueryTargets;
+      processor = aqueryProcessor;
+
+    } else {
+      try {
+        targets = TargetPatternsHelper.readFrom(env, options);
+      } catch (TargetPatternsHelper.TargetPatternsHelperException e) {
+        env.getReporter().handle(Event.error(e.getMessage()));
+        return BlazeCommandResult.failureDetail(e.getFailureDetail());
+      }
+      if (targets.isEmpty()) {
+        env.getReporter()
+            .handle(
+                Event.warn(
+                    "Usage: "
+                        + runtime.getProductName()
+                        + " build <options> <targets>."
+                        + "\nInvoke `"
+                        + runtime.getProductName()
+                        + " help build` for full description of usage and options."
+                        + "\nYour request is correct, but requested an empty set of targets."
+                        + " Nothing will be built."));
+      }
     }
 
     BuildRequest request;
     try (SilentCloseable closeable = Profiler.instance().profile("BuildRequest.create")) {
-      request =
-          BuildRequest.builder()
-              .setCommandName(getClass().getAnnotation(Command.class).name())
-              .setId(env.getCommandId())
-              .setOptions(options)
-              .setStartupOptions(runtime.getStartupOptionsProvider())
-              .setOutErr(env.getReporter().getOutErr())
-              .setTargets(targets)
-              .setStartTimeMillis(env.getCommandStartTime())
-              .build();
+      request = requestBuilder.setTargets(targets).build();
     }
-    DetailedExitCode detailedExitCode =
-        new BuildTool(env).processRequest(request, null, options).getDetailedExitCode();
-    return BlazeCommandResult.detailedExitCode(detailedExitCode);
+    BuildResult buildResult =
+        (processor != null ? new BuildTool(env, processor) : new BuildTool(env))
+            .processRequest(request, null, options);
+    if (!aqueryExpression.isEmpty() && buildResult.getSuccess()) {
+      ((BuildAqueryProcessor) processor).printMatchedActions(env.getReporter().getOutErr());
+    }
+    return BlazeCommandResult.detailedExitCode(buildResult.getDetailedExitCode());
   }
 
 }

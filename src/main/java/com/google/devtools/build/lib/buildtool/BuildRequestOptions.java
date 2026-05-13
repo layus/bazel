@@ -428,7 +428,7 @@ public abstract class BuildRequestOptions extends OptionsBase {
               + " target's transition, e.g. 'bazel build --cquery=//lib:lib"
               + " --universe_scope=//:transitioned_top' builds //lib:lib in the configuration"
               + " that //:transitioned_top applies to it. It is an error to specify a cquery here"
-              + " as well as command-line patterns, --target_pattern_file, or --query.")
+              + " as well as command-line patterns, --target_pattern_file, --query, or --aquery.")
   public abstract String getBuildCquery();
 
   @Option(
@@ -440,10 +440,8 @@ public abstract class BuildRequestOptions extends OptionsBase {
           "If set, build will analyze the universe of targets derived from the aquery expression"
               + " (or from --universe_scope if provided), build those targets, then evaluate the"
               + " aquery over the resulting action graph and print matching actions to stdout."
-              + " Accepts the same expression syntax as the 'aquery' command, including filter"
-              + " functions such as inputs(), outputs(), and mnemonic(). It is an error to specify"
-              + " an aquery here as well as command-line patterns, --target_pattern_file, --query,"
-              + " or --cquery.")
+              + " It is an error to specify an aquery here as well as command-line patterns,"
+              + " --target_pattern_file, --query, or --cquery.")
   public abstract String getBuildAquery();
 
   /**

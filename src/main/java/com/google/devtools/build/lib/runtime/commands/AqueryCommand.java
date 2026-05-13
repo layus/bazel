@@ -20,32 +20,27 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.devtools.build.lib.buildtool.AqueryProcessor;
 import com.google.devtools.build.lib.buildtool.AqueryProcessor.AqueryActionFilterException;
+import com.google.devtools.build.lib.buildtool.BuildAqueryProcessor;
 import com.google.devtools.build.lib.buildtool.BuildRequest;
 import com.google.devtools.build.lib.buildtool.BuildTool;
-import com.google.devtools.build.lib.cmdline.RepositoryMapping;
-import com.google.devtools.build.lib.cmdline.RepositoryName;
 import com.google.devtools.build.lib.cmdline.TargetPattern;
-import com.google.devtools.build.lib.cmdline.TargetPattern.Parser;
 import com.google.devtools.build.lib.events.Event;
+import com.google.devtools.build.lib.util.io.OutErr;
 import com.google.devtools.build.lib.query2.aquery.ActionGraphQueryEnvironment;
 import com.google.devtools.build.lib.query2.aquery.AqueryOptions;
 import com.google.devtools.build.lib.query2.engine.QueryEnvironment.QueryFunction;
 import com.google.devtools.build.lib.query2.engine.QueryException;
 import com.google.devtools.build.lib.query2.engine.QueryExpression;
-import com.google.devtools.build.lib.query2.engine.QueryParser;
-import com.google.devtools.build.lib.query2.engine.QuerySyntaxException;
-import com.google.devtools.build.lib.runtime.BlazeCommand;
 import com.google.devtools.build.lib.runtime.BlazeCommandResult;
-import com.google.devtools.build.lib.runtime.BlazeRuntime;
 import com.google.devtools.build.lib.runtime.Command;
 import com.google.devtools.build.lib.runtime.CommandEnvironment;
-import com.google.devtools.build.lib.runtime.KeepGoingOption;
-import com.google.devtools.build.lib.runtime.LoadingPhaseThreadsOption;
+import com.google.devtools.build.lib.runtime.commands.QueryCommandHandler.QueryProcessor;
+import com.google.devtools.build.lib.runtime.commands.QueryCommandHandler.QueryProcessor.ProcessorCreationException;
+import com.google.devtools.build.lib.runtime.commands.QueryCommandHandler.QueryScopeException;
+import com.google.devtools.build.lib.runtime.commands.QueryCommandHandler.UniverseScope;
 import com.google.devtools.build.lib.server.FailureDetails.ActionQuery;
 import com.google.devtools.build.lib.server.FailureDetails.ActionQuery.Code;
 import com.google.devtools.build.lib.server.FailureDetails.FailureDetail;
-import com.google.devtools.build.lib.skyframe.RepositoryMappingValue.RepositoryMappingResolutionException;
-import com.google.devtools.build.lib.util.InterruptedFailureDetails;
 import com.google.devtools.common.options.OptionPriority.PriorityCategory;
 import com.google.devtools.common.options.OptionsParser;
 import com.google.devtools.common.options.OptionsParsingException;
@@ -63,7 +58,9 @@ import com.google.devtools.common.options.OptionsParsingResult;
     binaryStdOut = true,
     completion = "label",
     help = "resource:aquery.txt")
-public final class AqueryCommand implements BlazeCommand {
+public final class AqueryCommand implements QueryCommandHandler {
+
+  static final String QUERY_TYPE = "aquery";
 
   @Override
   public void editOptions(OptionsParser optionsParser) {
@@ -78,103 +75,86 @@ public final class AqueryCommand implements BlazeCommand {
   }
 
   @Override
-  public BlazeCommandResult exec(CommandEnvironment env, OptionsParsingResult options) {
-    // TODO(twerth): Reduce overlap with CqueryCommand.
+  public String readQueryString(OptionsParsingResult options, CommandEnvironment env)
+      throws QueryException {
     AqueryOptions aqueryOptions = options.getOptions(AqueryOptions.class);
-    QueryCommandUtils.resetDeserializedKeysFromRemoteAnalysisCache(env);
-    boolean queryCurrentSkyframeState = aqueryOptions.getQueryCurrentSkyframeState();
+    return QueryOptionHelper.readQuery(
+        aqueryOptions, options, env, aqueryOptions.getQueryCurrentSkyframeState());
+  }
 
-    TargetPattern.Parser mainRepoTargetParser;
+  @Override
+  public UniverseScope deriveUniverseScope(
+      OptionsParsingResult options, QueryExpression expr, CommandEnvironment env)
+      throws QueryScopeException {
+    AqueryOptions aqueryOptions = options.getOptions(AqueryOptions.class);
     try {
-      RepositoryMapping repoMapping =
-          env.getSkyframeExecutor()
-              .getMainRepoMapping(
-                  env.getOptions().getOptions(KeepGoingOption.class).getKeepGoing(),
-                  env.getOptions().getOptions(LoadingPhaseThreadsOption.class).getThreads(),
-                  env.getReporter());
-      mainRepoTargetParser =
-          new Parser(env.getRelativeWorkingDirectory(), RepositoryName.MAIN, repoMapping);
-    } catch (RepositoryMappingResolutionException e) {
-      env.getReporter().handle(Event.error(e.getMessage()));
-      return BlazeCommandResult.detailedExitCode(e.getDetailedExitCode());
-    } catch (InterruptedException e) {
-      String errorMessage = "Fetch interrupted: " + e.getMessage();
-      env.getReporter().handle(Event.error(errorMessage));
-      return BlazeCommandResult.detailedExitCode(
-          InterruptedFailureDetails.detailedExitCode(errorMessage));
-    }
-
-    String query = null;
-    try {
-      query = QueryOptionHelper.readQuery(aqueryOptions, options, env, queryCurrentSkyframeState);
-    } catch (QueryException e) {
-      return BlazeCommandResult.failureDetail(e.getFailureDetail());
-    }
-
-    ImmutableMap<String, QueryFunction> functions = getFunctionsMap(env);
-
-    // Query expression might be null in the case of --skyframe_state.
-    QueryExpression expr;
-    try {
-      expr = query.isEmpty() ? null : QueryParser.parse(query, functions);
-    } catch (QuerySyntaxException e) {
-      String message =
-          String.format(
-              "Error while parsing '%s': %s", QueryExpression.truncate(query), e.getMessage());
-      env.getReporter().handle(Event.error(message));
-      return createFailureResult(message, Code.EXPRESSION_PARSE_FAILURE);
-    }
-
-    ImmutableList<String> topLevelTargets;
-    try {
-      topLevelTargets =
+      return UniverseScope.of(
           QueryCommandUtils.getTopLevelTargets(
-              aqueryOptions.getUniverseScope(), expr, queryCurrentSkyframeState);
+              aqueryOptions.getUniverseScope(),
+              expr,
+              aqueryOptions.getQueryCurrentSkyframeState()));
     } catch (QueryException e) {
       env.getReporter().handle(Event.error(e.getMessage()));
-      return createFailureResult(
-          Strings.nullToEmpty(e.getMessage()), Code.SKYFRAME_STATE_WITH_COMMAND_LINE_EXPRESSION);
+      throw new QueryScopeException(
+          createFailureResult(
+              Strings.nullToEmpty(e.getMessage()),
+              Code.SKYFRAME_STATE_WITH_COMMAND_LINE_EXPRESSION));
     }
+  }
 
-    BlazeRuntime runtime = env.getRuntime();
-
-    BuildRequest request =
-        BuildRequest.builder()
-            .setCommandName(getClass().getAnnotation(Command.class).name())
-            .setId(env.getCommandId())
-            .setOptions(options)
-            .setStartupOptions(runtime.getStartupOptionsProvider())
-            .setOutErr(env.getReporter().getOutErr())
-            .setTargets(topLevelTargets)
-            .setStartTimeMillis(env.getCommandStartTime())
-            .build();
-
-    AqueryProcessor aqueryBuildTool;
-
+  @Override
+  public BuildTool.AnalysisPostProcessor createStandaloneProcessor(
+      QueryExpression expr, TargetPattern.Parser parser, CommandEnvironment env)
+      throws QueryScopeException {
     try {
-      aqueryBuildTool = new AqueryProcessor(expr, mainRepoTargetParser);
+      return new AqueryProcessor(expr, parser);
     } catch (AqueryActionFilterException e) {
       String message = e.getMessage() + "\n" + expr;
       env.getReporter().handle(Event.error(message));
-      return createFailureResult(message, Code.INVALID_AQUERY_EXPRESSION);
+      throw new QueryScopeException(createFailureResult(message, Code.INVALID_AQUERY_EXPRESSION));
     }
+  }
 
-    if (queryCurrentSkyframeState) {
-      return aqueryBuildTool.dumpActionGraphFromSkyframe(env);
+  @Override
+  public BlazeCommandResult runWithProcessor(
+      CommandEnvironment env,
+      BuildTool.AnalysisPostProcessor processor,
+      BuildRequest request,
+      OptionsParsingResult options,
+      UniverseScope universeScope,
+      QueryProcessor queryProcessor) {
+    AqueryProcessor aqueryProcessor = (AqueryProcessor) processor;
+    if (options.getOptions(AqueryOptions.class).getQueryCurrentSkyframeState()) {
+      return aqueryProcessor.dumpActionGraphFromSkyframe(env);
     }
     try {
       return BlazeCommandResult.detailedExitCode(
-          new BuildTool(env, aqueryBuildTool)
+          new BuildTool(env, aqueryProcessor)
               .processRequest(request, null, options)
               .getDetailedExitCode());
     } catch (StackOverflowError e) {
-      String message = "Aquery output was too large to handle: " + query;
+      String message = "Aquery output was too large to handle";
       env.getReporter().handle(Event.error(message));
       return createFailureResult(message, Code.AQUERY_OUTPUT_TOO_BIG);
     }
   }
 
-  private static BlazeCommandResult createFailureResult(String message, Code detailedCode) {
+  @Override
+  public String getQueryType() {
+    return QUERY_TYPE;
+  }
+
+  @Override
+  public ImmutableMap<String, QueryFunction> getFunctionsMap(CommandEnvironment env) {
+    return getAqueryFunctionsMap(env);
+  }
+
+  @Override
+  public BlazeCommandResult createParseFailureResult(String message) {
+    return createFailureResult(message, Code.EXPRESSION_PARSE_FAILURE);
+  }
+
+  static BlazeCommandResult createFailureResult(String message, Code detailedCode) {
     return BlazeCommandResult.failureDetail(
         FailureDetail.newBuilder()
             .setMessage(message)
@@ -182,7 +162,62 @@ public final class AqueryCommand implements BlazeCommand {
             .build());
   }
 
-  private ImmutableMap<String, QueryFunction> getFunctionsMap(CommandEnvironment env) {
+  @Override
+  public QueryProcessor createQueryProcessor(CommandEnvironment env) {
+    return new QueryProcessor() {
+      @Override
+      public java.util.List<String> deriveUniverseTargets(
+          java.util.List<String> explicitScope, QueryExpression expr)
+          throws ProcessorCreationException {
+        try {
+          return QueryCommandUtils.getTopLevelTargets(
+              explicitScope, expr, /* queryCurrentSkyframeState= */ false);
+        } catch (QueryException e) {
+          String message = e.getMessage();
+          env.getReporter().handle(Event.error(message));
+          throw new ProcessorCreationException(
+              createFailureResult(message, Code.INCORRECT_ARGUMENTS));
+        }
+      }
+
+      @Override
+      public void customizeRequestBuilder(BuildRequest.Builder builder) {}
+
+      @Override
+      public BuildTool.AnalysisPostProcessor createAnalysisPostProcessor(
+          QueryExpression expr, TargetPattern.Parser parser)
+          throws ProcessorCreationException {
+        try {
+          return new BuildAqueryProcessor(expr, parser);
+        } catch (AqueryActionFilterException e) {
+          String message = e.getMessage() + "\n" + expr;
+          env.getReporter().handle(Event.error(message));
+          throw new ProcessorCreationException(
+              createFailureResult(message, Code.INVALID_AQUERY_EXPRESSION));
+        }
+      }
+
+      @Override
+      public void prepareOptions(OptionsParsingResult options) {
+        try {
+          ((OptionsParser) options)
+              .parse(
+                  PriorityCategory.SOFTWARE_REQUIREMENT,
+                  "build --aquery suppresses the default target result printer",
+                  ImmutableList.of("--show_result=0"));
+        } catch (OptionsParsingException e) {
+          throw new IllegalStateException("build --aquery failed to set --show_result=0", e);
+        }
+      }
+
+      @Override
+      public void onBuildSuccess(BuildTool.AnalysisPostProcessor processor, OutErr outErr) {
+        ((BuildAqueryProcessor) processor).printMatchedActions(outErr);
+      }
+    };
+  }
+
+  static ImmutableMap<String, QueryFunction> getAqueryFunctionsMap(CommandEnvironment env) {
     ImmutableMap.Builder<String, QueryFunction> functionsBuilder = ImmutableMap.builder();
 
     for (QueryFunction queryFunction : ActionGraphQueryEnvironment.FUNCTIONS) {

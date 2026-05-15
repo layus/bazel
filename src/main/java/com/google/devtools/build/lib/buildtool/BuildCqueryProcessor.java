@@ -29,7 +29,7 @@ import com.google.devtools.build.lib.query2.common.CommonQueryOptions;
 import com.google.devtools.build.lib.query2.common.CqueryNode;
 import com.google.devtools.build.lib.query2.cquery.ConfiguredTargetQueryEnvironment;
 import com.google.devtools.build.lib.query2.cquery.CqueryOptions;
-import com.google.devtools.build.lib.query2.engine.QueryEnvironment.QueryFunction;
+import com.google.devtools.build.lib.query2.engine.QueryFunction;
 import com.google.devtools.build.lib.query2.engine.QueryException;
 import com.google.devtools.build.lib.query2.engine.QueryExpression;
 import com.google.devtools.build.lib.runtime.BlazeRuntime;
@@ -39,6 +39,7 @@ import com.google.devtools.build.lib.server.FailureDetails.FailureDetail;
 import com.google.devtools.build.lib.skyframe.AspectKeyCreator;
 import com.google.devtools.build.lib.util.DetailedExitCode;
 import com.google.devtools.build.skyframe.WalkableGraph;
+import com.google.devtools.common.options.OptionsParser;
 import java.io.IOException;
 import java.util.Set;
 import net.starlark.java.eval.StarlarkSemantics;
@@ -62,9 +63,15 @@ public final class BuildCqueryProcessor extends PostAnalysisQueryProcessor<Cquer
     super(queryExpression, mainRepoTargetParser);
   }
 
+  private static CqueryOptions defaultCqueryOptions() {
+    return OptionsParser.builder().optionsClasses(CqueryOptions.class).build()
+        .getOptions(CqueryOptions.class);
+  }
+
   @Override
   protected CommonQueryOptions getQueryOptions(CommandEnvironment env) {
-    return env.getOptions().getOptions(CqueryOptions.class);
+    CqueryOptions opts = env.getOptions().getOptions(CqueryOptions.class);
+    return opts != null ? opts : defaultCqueryOptions();
   }
 
   @Override
@@ -81,6 +88,9 @@ public final class BuildCqueryProcessor extends PostAnalysisQueryProcessor<Cquer
             .addAll(env.getRuntime().getQueryFunctions())
             .build();
     CqueryOptions cqueryOptions = request.getOptions(CqueryOptions.class);
+    if (cqueryOptions == null) {
+      cqueryOptions = defaultCqueryOptions();
+    }
     StarlarkSemantics starlarkSemantics =
         env.getSkyframeExecutor()
             .getEffectiveStarlarkSemantics(

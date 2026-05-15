@@ -80,7 +80,7 @@ function test_target_pattern_file_test() {
 function test_target_pattern_file_and_cli_pattern() {
   setup
   bazel build --target_pattern_file=build.params -- //:x >& $TEST_log && fail "Expected failure"
-  expect_log "Only one of command-line target patterns, --target_pattern_file, --query, or --cquery may be specified"
+  expect_log "Only one of command-line target patterns, --target_pattern_file, --query, --cquery, or --aquery may be specified"
 }
 
 function test_target_pattern_file_unicode() {

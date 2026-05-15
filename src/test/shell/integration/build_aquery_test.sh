@@ -151,15 +151,15 @@ function test_build_aquery_and_target_pattern_file_fails() {
   expect_log "Only one of command-line target patterns"
 }
 
-# --universe_scope lets you query a dep in the context of a top-level target's
-# action graph, while still building that universe.
+# Residue args set the universe scope for build --aquery: the aquery is evaluated
+# over the transitive closure of those targets, while still building them.
 function test_build_aquery_universe_scope() {
   setup_genrules
-  # z depends on x; with universe_scope=z, the aquery over //:x should find
+  # z depends on x; with universe scope=z, the aquery over //:x should find
   # x's genrule action in z's configuration. The owner of x's action is //:x,
   # so only x.out is built (not z.out, which is not the owner).
-  bazel build --universe_scope="//:z" --aquery="//:x" >& "$TEST_log" \
-    || fail "Expected success"
+  bazel build --aquery="//:x" "//:z" >& "$TEST_log" \
+      || fail "Expected success"
   # x's genrule output path must be printed.
   expect_log "x\.out"
   test -f bazel-genfiles/x.out || fail "x.out was not built"

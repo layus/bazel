@@ -34,8 +34,6 @@ import com.google.devtools.build.lib.pkgcache.LoadingOptions;
 import com.google.devtools.build.lib.pkgcache.PackageOptions;
 import com.google.devtools.build.lib.profiler.Profiler;
 import com.google.devtools.build.lib.profiler.SilentCloseable;
-import com.google.devtools.build.lib.query2.aquery.AqueryOptions;
-import com.google.devtools.build.lib.query2.cquery.CqueryOptions;
 import com.google.devtools.build.lib.query2.engine.QueryException;
 import com.google.devtools.build.lib.query2.engine.QueryExpression;
 import com.google.devtools.build.lib.query2.engine.QueryParser;
@@ -78,7 +76,6 @@ import java.util.List;
       BuildEventProtocolOptions.class,
       SkyfocusOptions.class,
       RemoteAnalysisCachingOptions.class,
-      CqueryOptions.class,
     },
     usesConfigurationOptions = true,
     shortDescription = "Builds the specified targets.",
@@ -113,8 +110,10 @@ public final class BuildCommand implements BlazeCommand {
     String cqueryExpression = buildRequestOptions.getBuildCquery();
     String aqueryExpression = buildRequestOptions.getBuildAquery();
 
+    boolean hasBuildQuery = !cqueryExpression.isEmpty() || !aqueryExpression.isEmpty();
     int querySourcesSpecified =
-        (options.getResidue().isEmpty() ? 0 : 1)
+        // Residue is used as universe scope for --cquery/--aquery, not a separate source.
+        (options.getResidue().isEmpty() || hasBuildQuery ? 0 : 1)
             + (buildRequestOptions.getTargetPatternFile().isEmpty() ? 0 : 1)
             + (buildRequestOptions.getBuildQuery().isEmpty() ? 0 : 1)
             + (cqueryExpression.isEmpty() ? 0 : 1)
@@ -169,9 +168,7 @@ public final class BuildCommand implements BlazeCommand {
                     ConfigurableQuery.newBuilder().setCode(Code.EXPRESSION_PARSE_FAILURE))
                 .build());
       }
-      targets =
-          QueryCommandUtils.deriveCqueryUniverseScope(
-              options.getOptions(CqueryOptions.class).getUniverseScope(), expr);
+      targets = QueryCommandUtils.deriveCqueryUniverseScope(options.getResidue(), expr);
       processor = new BuildCqueryProcessor(expr, mainRepoTargetParser);
       requestBuilder.setCheckforActionConflicts(false).setReportIncompatibleTargets(false);
 
@@ -204,9 +201,7 @@ public final class BuildCommand implements BlazeCommand {
       try {
         aqueryTargets =
             QueryCommandUtils.getTopLevelTargets(
-                options.getOptions(AqueryOptions.class).getUniverseScope(),
-                expr,
-                /* queryCurrentSkyframeState= */ false);
+                options.getResidue(), expr, /* queryCurrentSkyframeState= */ false);
       } catch (QueryException e) {
         String message = Strings.nullToEmpty(e.getMessage());
         env.getReporter().handle(Event.error(message));

@@ -261,8 +261,8 @@ function test_build_cquery_transition_selects_variant_config() {
 
   # Build :lib in config hash2, then read all lib.txt files produced.
   bazel build \
-      --universe_scope="//$pkg:wrapper,//$pkg:lib" \
       --cquery="config(//$pkg:lib, $hash2)" \
+      "//$pkg:wrapper" "//$pkg:lib" \
       >& "$TEST_log" || fail "Expected success building :lib in config $hash2"
 
   local content2
@@ -274,8 +274,8 @@ function test_build_cquery_transition_selects_variant_config() {
 
   # Build :lib in config hash1.
   bazel build \
-      --universe_scope="//$pkg:wrapper,//$pkg:lib" \
       --cquery="config(//$pkg:lib, $hash1)" \
+      "//$pkg:wrapper" "//$pkg:lib" \
       >& "$TEST_log" || fail "Expected success building :lib in config $hash1"
 
   local content1
@@ -315,8 +315,8 @@ function test_build_cquery_transition_selects_default_config() {
   hash1="$(grep "^//$pkg:lib (" "$TEST_log" | sed -e 's,.*(\([^)]*\)).*,\1,' | sort -u | head -1)"
 
   bazel build \
-      --universe_scope="//$pkg:wrapper,//$pkg:lib" \
       --cquery="config(//$pkg:lib, $hash1)" \
+      "//$pkg:wrapper" "//$pkg:lib" \
       >& "$TEST_log" || fail "Expected success"
 
   local lib_out
@@ -328,8 +328,8 @@ function test_build_cquery_transition_selects_default_config() {
       || fail "Expected 'default' or 'variant', got: '$content'"
 }
 
-# Test 3: the main motivation for --universe_scope in build --cquery.
-# "bazel build --cquery=//pkg:lib --universe_scope=//pkg:wrapper" should build
+# Test 3: residue args as universe scope in build --cquery.
+# "bazel build --cquery=//pkg:lib //pkg:wrapper" should build
 # //pkg:lib in the configuration that //pkg:wrapper's transition applied to it
 # (i.e. flag="variant"), NOT in the baseline configuration.
 # This is the one-shot form: no separate cquery step needed.
@@ -339,8 +339,8 @@ function test_build_cquery_universe_scope_builds_dep_in_transitioned_config() {
 
   # Build :lib as a dep of :wrapper — should get the "variant" config.
   bazel build \
-      --universe_scope="//$pkg:wrapper" \
       --cquery="//$pkg:lib" \
+      "//$pkg:wrapper" \
       >& "$TEST_log" || fail "Expected success"
 
   local lib_out
@@ -353,23 +353,23 @@ function test_build_cquery_universe_scope_builds_dep_in_transitioned_config() {
       || fail "Expected 'variant' (transitioned config), got: '$content'"
 }
 
-# Test 4: --universe_scope with a target that only builds in the transitioned
-# config. Demonstrates that --universe_scope causes the dep to be built in the
+# Test 4: residue universe scope with a target that only builds in the transitioned
+# config. Demonstrates that the universe scope causes the dep to be built in the
 # transitioned config, producing different output than a direct baseline build.
 function test_build_cquery_universe_scope_required_for_transition_only_target() {
   local pkg=test_build_cquery_universe_scope_required_for_transition_only_target
   setup_multiconfig_pkg "$pkg"
 
-  # Building :lib via --universe_scope=:wrapper should produce "variant".
+  # Building :lib with universe scope :wrapper should produce "variant".
   bazel build \
-      --universe_scope="//$pkg:wrapper" \
       --cquery="//$pkg:lib" \
-      >& "$TEST_log" || fail "Expected success with universe_scope"
+      "//$pkg:wrapper" \
+      >& "$TEST_log" || fail "Expected success with universe scope"
   local content
   content="$(find bazel-bin/$pkg -name "lib.txt" 2>/dev/null -exec cat {} \; | sort -u | tail -1)"
-  [[ -n "$content" ]] || fail "lib.txt not found after universe_scope build"
+  [[ -n "$content" ]] || fail "lib.txt not found after universe scope build"
   [[ "$content" == "variant" ]] \
-      || fail "Expected 'variant' via universe_scope, got: '$content'"
+      || fail "Expected 'variant' via universe scope, got: '$content'"
 }
 
 # Test 5: use config(//pkg:lib, <hash>) in the --cquery expression to select
@@ -401,8 +401,8 @@ function test_build_cquery_config_function_selects_exact_config() {
 
   # Step 2: build :lib in hash1 via config() and read its output.
   bazel build \
-      --universe_scope="//$pkg:wrapper,//$pkg:lib" \
       --cquery="config(//$pkg:lib, $hash1)" \
+      "//$pkg:wrapper" "//$pkg:lib" \
       >& "$TEST_log" || fail "Expected success for config(..., $hash1)"
 
   local content1
@@ -415,8 +415,8 @@ function test_build_cquery_config_function_selects_exact_config() {
 
   # Step 4: build :lib in hash2 via config() and read its output.
   bazel build \
-      --universe_scope="//$pkg:wrapper,//$pkg:lib" \
       --cquery="config(//$pkg:lib, $hash2)" \
+      "//$pkg:wrapper" "//$pkg:lib" \
       >& "$TEST_log" || fail "Expected success for config(..., $hash2)"
 
   local content2

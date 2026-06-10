@@ -288,7 +288,7 @@ public class DumpCommand implements BlazeCommand {
         effectTags = {OptionEffectTag.BAZEL_MONITORING},
         help =
             "Regex filter of SkyKey names to output. Only used with --skyframe=deps, rdeps,"
-                + " function_graph.")
+                + " function_graph, ndjson_graph.")
     public RegexFilter skyKeyFilter;
 
     @Option(
@@ -310,6 +310,7 @@ public class DumpCommand implements BlazeCommand {
     DEPS,
     RDEPS,
     FUNCTION_GRAPH,
+    NDJSON_GRAPH,
     ACTIVE_DIRECTORIES,
     ACTIVE_DIRECTORIES_FRONTIER_DEPS,
   }
@@ -419,6 +420,7 @@ public class DumpCommand implements BlazeCommand {
         case DEPS -> evaluator.dumpDeps(out, dumpOptions.skyKeyFilter);
         case RDEPS -> evaluator.dumpRdeps(out, dumpOptions.skyKeyFilter);
         case FUNCTION_GRAPH -> evaluator.dumpFunctionGraph(out, dumpOptions.skyKeyFilter);
+        case NDJSON_GRAPH -> evaluator.dumpNdjsonGraph(out, dumpOptions.skyKeyFilter);
         case ACTIVE_DIRECTORIES ->
             env.getSkyframeExecutor().getSkyfocusState().dumpActiveDirectories(out);
         case ACTIVE_DIRECTORIES_FRONTIER_DEPS ->

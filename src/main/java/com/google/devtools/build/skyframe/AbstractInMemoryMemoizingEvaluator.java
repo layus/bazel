@@ -38,6 +38,7 @@ import com.google.devtools.build.skyframe.InvalidatingNodeVisitor.InvalidationSt
 import com.google.errorprone.annotations.ForOverride;
 import java.io.PrintStream;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -414,6 +415,102 @@ public abstract class AbstractInMemoryMemoizingEvaluator implements MemoizingEva
           }
           out.println();
         });
+  }
+
+  @Override
+  public final void dumpNdjsonGraph(PrintStream out, Predicate<String> filter)
+      throws InterruptedException {
+    // Pass 1: assign integer IDs and collect function name dictionary.
+    HashMap<SkyKey, Integer> keyToId = new HashMap<>();
+    HashMap<SkyFunctionName, Integer> funcToId = new HashMap<>();
+    ArrayList<InMemoryNodeEntry> entries = new ArrayList<>();
+
+    for (InMemoryNodeEntry entry : getInMemoryGraph().getAllNodeEntries()) {
+      if (Thread.interrupted()) {
+        throw new InterruptedException();
+      }
+      if (!entry.isDone() || !filter.test(entry.getKey().getCanonicalName())) {
+        continue;
+      }
+      int id = entries.size();
+      keyToId.put(entry.getKey(), id);
+      entries.add(entry);
+      SkyFunctionName fn = entry.getKey().functionName();
+      funcToId.computeIfAbsent(fn, k -> funcToId.size());
+    }
+
+    // Emit header: function name dictionary.
+    // {"f":["FUNC0","FUNC1",...]}
+    String[] funcNames = new String[funcToId.size()];
+    for (Map.Entry<SkyFunctionName, Integer> e : funcToId.entrySet()) {
+      funcNames[e.getValue()] = e.getKey().getName();
+    }
+    StringBuilder sb = new StringBuilder();
+    sb.append("{\"f\":[");
+    for (int i = 0; i < funcNames.length; i++) {
+      if (i > 0) {
+        sb.append(',');
+      }
+      appendJsonString(sb, funcNames[i]);
+    }
+    sb.append("]}");
+    out.println(sb);
+
+    // Pass 2: emit one line per node.
+    // {"i":<id>,"f":<funcIdx>,"k":"<name>","d":[<dep_ids>]}
+    for (int i = 0; i < entries.size(); i++) {
+      if (Thread.interrupted()) {
+        throw new InterruptedException();
+      }
+      InMemoryNodeEntry entry = entries.get(i);
+      SkyKey key = entry.getKey();
+      sb.setLength(0);
+      sb.append("{\"i\":").append(i);
+      sb.append(",\"f\":").append(funcToId.get(key.functionName()));
+      sb.append(",\"k\":");
+      appendJsonString(sb, key.getCanonicalName());
+      if (entry.keepsEdges()) {
+        sb.append(",\"d\":[");
+        boolean first = true;
+        for (SkyKey dep : entry.getDirectDeps()) {
+          Integer depId = keyToId.get(dep);
+          if (depId == null) {
+            continue; // dep was filtered out
+          }
+          if (!first) {
+            sb.append(',');
+          }
+          sb.append(depId.intValue());
+          first = false;
+        }
+        sb.append(']');
+      }
+      sb.append('}');
+      out.println(sb);
+    }
+  }
+
+  /** Appends a JSON-escaped string (with surrounding quotes) to the builder. */
+  private static void appendJsonString(StringBuilder sb, String s) {
+    sb.append('"');
+    for (int i = 0; i < s.length(); i++) {
+      char c = s.charAt(i);
+      switch (c) {
+        case '"' -> sb.append("\\\"");
+        case '\\' -> sb.append("\\\\");
+        case '\n' -> sb.append("\\n");
+        case '\r' -> sb.append("\\r");
+        case '\t' -> sb.append("\\t");
+        default -> {
+          if (c < 0x20) {
+            sb.append(String.format("\\u%04x", (int) c));
+          } else {
+            sb.append(c);
+          }
+        }
+      }
+    }
+    sb.append('"');
   }
 
   @Override

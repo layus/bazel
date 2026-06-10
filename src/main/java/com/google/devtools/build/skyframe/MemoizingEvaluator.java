@@ -280,6 +280,17 @@ public interface MemoizingEvaluator {
   void dumpRdeps(PrintStream out, Predicate<String> filter) throws InterruptedException;
 
   /**
+   * Writes a compact NDJSON representation of the graph to the given output stream.
+   *
+   * <p>The first line is a dictionary mapping integer node IDs to their canonical names and function
+   * types. Subsequent lines are edge records mapping each node ID to its dependency IDs.
+   *
+   * <p>Not necessarily thread-safe. Use only for debugging purposes.
+   */
+  @ThreadHostile
+  void dumpNdjsonGraph(PrintStream out, Predicate<String> filter) throws InterruptedException;
+
+  /**
    * Cleans up {@linkplain com.google.devtools.build.lib.concurrent.PooledInterner.Pool interning
    * pools} by moving objects to weak interners and uninstalling the current pools.
    *

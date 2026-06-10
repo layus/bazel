@@ -134,3 +134,22 @@ children to verify reachability before hiding.
 
 **Enforcement**: `_parse_canonical_name()` checks for `null` after
 stripping trailing brackets.
+
+### INV-15: Every UI action triggers a relayout
+
+> Any user interaction that changes the visible graph (expand, fold,
+> pin, unpin, filter toggle, transitive toggle, type checkbox) must
+> call `relayout()` so the layout reflects the current state.
+
+**Enforcement**: All action handlers end with `applyView()` (which
+calls `relayout()`) or call `relayout()` directly.
+
+### INV-16: Floating panels ordered wider-to-narrower, top-to-bottom
+
+> The right-side floating overlay panels are stacked top-to-bottom in
+> decreasing width order.  The type filter panel (widest) is on top;
+> the view-controls panel (narrower) is below.  This order is static
+> and does not change at runtime.
+
+**Enforcement**: HTML order and CSS positioning (`filter-panel` has
+`top: 10px`; `view-controls` is positioned dynamically below it).

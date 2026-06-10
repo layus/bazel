@@ -77,14 +77,14 @@
   .ctx-item.danger { color: #e74c3c; }
   .ctx-item.danger:hover { background: #5c1a1a; }
   #filter-panel {
-    position: absolute; right: 10px; z-index: 1500;
+    position: absolute; top: 10px; right: 10px; z-index: 1500;
     background: rgba(22, 33, 62, 0.92); border: 1px solid #0f3460; border-radius: 6px;
     padding: 8px 12px;
     box-shadow: 0 4px 16px rgba(0,0,0,0.4);
     font-size: 12px;
   }
   #view-controls {
-    position: absolute; top: 10px; right: 10px; z-index: 1600;
+    position: absolute; right: 10px; z-index: 1400;
     background: rgba(22, 33, 62, 0.92); border: 1px solid #0f3460; border-radius: 6px;
     padding: 6px 12px;
     box-shadow: 0 4px 16px rgba(0,0,0,0.4);
@@ -92,11 +92,11 @@
     display: flex; flex-direction: column; gap: 5px;
   }
   .vc-row {
-    display: flex; align-items: center; justify-content: space-between; gap: 10px;
-    white-space: nowrap;
+    display: flex; align-items: center; gap: 0; white-space: nowrap;
   }
-  .vc-label { color: #bdc3c7; font-size: 10px; }
-  .vc-states { color: #7f8c8d; font-size: 9px; }
+  .vc-title { color: #bdc3c7; font-size: 10px; margin-right: 8px; width: 60px; flex-shrink: 0; }
+  .vc-state { color: #7f8c8d; font-size: 9px; width: 32px; text-align: center; }
+  .vc-state.vc-active { color: #e0e0e0; font-weight: bold; }
   .toggle-switch {
     position: relative; display: inline-block; width: 34px; height: 18px; flex-shrink: 0;
   }
@@ -179,22 +179,6 @@
 <div id="main-area">
 <div style="position:relative; flex:1; min-height:0;">
   <div id="cy" style="width:100%;height:100%;"></div>
-  <div id="view-controls">
-    <div class="vc-row">
-      <span class="vc-label">Color by <span class="vc-states" id="vc-color-state">Type</span></span>
-      <label class="toggle-switch" title="Toggle between coloring by type and by config">
-        <input type="checkbox" id="vc-color-toggle">
-        <span class="toggle-slider"></span>
-      </label>
-    </div>
-    <div class="vc-row">
-      <span class="vc-label">Hide transitive <span class="vc-states" id="vc-trans-state">Off</span></span>
-      <label class="toggle-switch" title="Hide redundant transitive edges (A→C when A→B→C exists)">
-        <input type="checkbox" id="vc-trans-toggle">
-        <span class="toggle-slider"></span>
-      </label>
-    </div>
-  </div>
   <div id="filter-panel">
     <div class="fp-header" id="fp-header">
       <span class="fp-toggle" id="fp-toggle">&#9660;</span>
@@ -204,6 +188,26 @@
       <input type="checkbox" class="fp-enable" id="fp-enable" checked title="Enable/disable type filtering">
     </div>
     <div id="fp-list"></div>
+  </div>
+  <div id="view-controls">
+    <div class="vc-row">
+      <span class="vc-title">Color</span>
+      <span class="vc-state vc-active" id="vc-color-left">Type</span>
+      <label class="toggle-switch" title="Toggle between coloring by type and by config">
+        <input type="checkbox" id="vc-color-toggle">
+        <span class="toggle-slider"></span>
+      </label>
+      <span class="vc-state" id="vc-color-right">Config</span>
+    </div>
+    <div class="vc-row">
+      <span class="vc-title">Transitive</span>
+      <span class="vc-state vc-active" id="vc-trans-left">Show</span>
+      <label class="toggle-switch" title="Hide redundant transitive edges">
+        <input type="checkbox" id="vc-trans-toggle">
+        <span class="toggle-slider"></span>
+      </label>
+      <span class="vc-state" id="vc-trans-right">Hide</span>
+    </div>
   </div>
 </div>
 <div id="detail-pane"><span class="dp-empty">Click a node to see details</span></div>
@@ -250,10 +254,8 @@ function configColor(cfg) {
   return CONFIG_COLORS[cfg];
 }
 
-let colorMode = 'type'; // 'type' or 'config'
-
 function nodeColor(ft, cfg) {
-  return colorMode === 'config' ? configColor(cfg) : typeColor(ft);
+  return viewConfig.colorMode === 'config' ? configColor(cfg) : typeColor(ft);
 }
 
 // -- Cytoscape init --
@@ -431,18 +433,33 @@ function applyView(view) {
   relayout();
 }
 
-// -- Type filter state --
+// -- Reactive view config --
+// All view state lives here. Any mutation triggers applyViewConfig().
 const DEFAULT_ENABLED_TYPES = new Set(['BUILD_DRIVER', 'CONFIGURED_TARGET']);
 const hiddenTypes = new Set();  // populated after fetchTypes
 let filterCollapsed = false;
-let filterEnabled = true;
 
-function applyTypeFilter() {
+const _viewState = {
+  filterEnabled: true,
+  colorMode: 'type',   // 'type' | 'config'
+  hideTransitive: false,
+};
+const viewConfig = new Proxy(_viewState, {
+  set(target, prop, value) {
+    if (target[prop] === value) return true;
+    target[prop] = value;
+    applyViewConfig();
+    return true;
+  }
+});
+
+function applyViewConfig() {
+  // 1. Node visibility (type filter)
   cy.batch(() => {
     cy.nodes().forEach(n => {
       const ft = n.data('function_type');
       const pinned = n.data('is_pinned');
-      if (filterEnabled && !pinned && hiddenTypes.has(ft)) {
+      if (viewConfig.filterEnabled && !pinned && hiddenTypes.has(ft)) {
         n.style('display', 'none');
       } else {
         n.style('display', 'element');
@@ -454,10 +471,28 @@ function applyTypeFilter() {
       e.style('display', (sv && tv) ? 'element' : 'none');
     });
   });
-  if (hideTransitive) applyTransitiveFilter();
-  // Re-layout after filter changes so hidden nodes don't leave gaps
+  // 2. Transitive edge hiding
+  if (viewConfig.hideTransitive) applyTransitiveFilter();
+  // 3. Recolor nodes
+  cy.batch(() => {
+    cy.nodes().forEach(n => {
+      n.data('color', nodeColor(n.data('function_type'), n.data('config')));
+    });
+  });
+  // 4. Update filter panel swatches
+  const isConfig = viewConfig.colorMode === 'config';
+  document.querySelectorAll('#fp-list .fp-swatch').forEach(sw => {
+    sw.style.background = isConfig ? 'transparent' : typeColor(sw.parentElement.dataset.ft);
+  });
+  document.querySelectorAll('#fp-swatches-inline .fp-swatch').forEach(sw => {
+    sw.style.background = isConfig ? 'transparent' : typeColor(sw.dataset.ft);
+  });
+  // 5. Always relayout
   relayout();
 }
+
+// Legacy alias used by applyView and buildFilterPanel
+function applyTypeFilter() { applyViewConfig(); }
 
 // allKnownTypes: fixed list fetched once from the backend at startup.
 let allKnownTypes = [];
@@ -513,8 +548,8 @@ function buildFilterPanel() {
     cb.addEventListener('change', () => {
       if (cb.checked) { hiddenTypes.delete(ft); } else { hiddenTypes.add(ft); }
       row.classList.toggle('fp-disabled', !cb.checked);
-      applyTypeFilter();
       updateSwatches();
+      applyViewConfig();
     });
     const swatch = document.createElement('span');
     swatch.className = 'fp-swatch';
@@ -547,9 +582,9 @@ function buildFilterPanel() {
   panel.style.width = 'auto';
   requestAnimationFrame(() => {
     panel.style.width = panel.offsetWidth + 'px';
-    // Position filter panel below view-controls
+    // Position view-controls below filter panel
     const vc = document.getElementById('view-controls');
-    panel.style.top = (vc.offsetTop + vc.offsetHeight + 6) + 'px';
+    vc.style.top = (panel.offsetTop + panel.offsetHeight + 6) + 'px';
   });
 }
 
@@ -589,46 +624,27 @@ document.getElementById('fp-header').addEventListener('click', (e) => {
 });
 
 document.getElementById('fp-enable').addEventListener('change', (e) => {
-  filterEnabled = e.target.checked;
-  document.getElementById('fp-enable').labels[0].textContent = filterEnabled ? 'On' : 'Off';
-  applyTypeFilter();
+  document.getElementById('fp-enable').labels[0].textContent = e.target.checked ? 'On' : 'Off';
+  viewConfig.filterEnabled = e.target.checked;
 });
 
 // -- View controls: Color mode toggle --
 document.getElementById('vc-color-toggle').addEventListener('change', (e) => {
-  colorMode = e.target.checked ? 'config' : 'type';
-  document.getElementById('vc-color-state').textContent = e.target.checked ? 'Config' : 'Type';
-  recolorAll();
+  document.getElementById('vc-color-left').classList.toggle('vc-active', !e.target.checked);
+  document.getElementById('vc-color-right').classList.toggle('vc-active', e.target.checked);
+  viewConfig.colorMode = e.target.checked ? 'config' : 'type';
 });
 
-function recolorAll() {
-  cy.batch(() => {
-    cy.nodes().forEach(n => {
-      n.data('color', nodeColor(n.data('function_type'), n.data('config')));
-    });
-  });
-  // Update filter panel swatches: transparent when coloring by config
-  const isConfig = colorMode === 'config';
-  document.querySelectorAll('#fp-list .fp-swatch').forEach(sw => {
-    sw.style.background = isConfig ? 'transparent' : typeColor(sw.parentElement.dataset.ft);
-  });
-  document.querySelectorAll('#fp-swatches-inline .fp-swatch').forEach(sw => {
-    sw.style.background = isConfig ? 'transparent' : typeColor(sw.dataset.ft);
-  });
-}
-
 // -- View controls: Transitive edge hiding --
-let hideTransitive = false;
-
 document.getElementById('vc-trans-toggle').addEventListener('change', (e) => {
-  hideTransitive = e.target.checked;
-  document.getElementById('vc-trans-state').textContent = e.target.checked ? 'On' : 'Off';
-  applyTransitiveFilter();
+  document.getElementById('vc-trans-left').classList.toggle('vc-active', !e.target.checked);
+  document.getElementById('vc-trans-right').classList.toggle('vc-active', e.target.checked);
+  viewConfig.hideTransitive = e.target.checked;
 });
 
 function applyTransitiveFilter() {
   cy.batch(() => {
-    if (!hideTransitive) {
+    if (!viewConfig.hideTransitive) {
       // Show all edges (respect type filter visibility)
       cy.edges().forEach(e => {
         const sv = e.source().style('display') !== 'none';
@@ -688,9 +704,12 @@ function applyTransitiveFilter() {
 }
 
 function relayout() {
-  const layout = cy.layout({
+  // Only lay out visible elements so hidden nodes don't affect positioning
+  const visibleEles = cy.elements().filter(ele => ele.style('display') !== 'none');
+  const layout = visibleEles.layout({
     name: 'dagre',
     rankDir: 'LR',
+    align: 'DL',
     rankSep: 80,
     nodeSep: 14,
     edgeSep: 8,
@@ -969,8 +988,34 @@ document.getElementById('btn-redraw').addEventListener('click', () => {
 });
 
 document.getElementById('btn-fit').addEventListener('click', () => {
-  cy.fit(undefined, 30);
+  fitAvoidingPanels();
 });
+
+function fitAvoidingPanels() {
+  const pad = 30;
+  // Compute right padding to avoid the floating panels
+  const fp = document.getElementById('filter-panel');
+  const vc = document.getElementById('view-controls');
+  const panelWidth = Math.max(fp ? fp.offsetWidth : 0, vc ? vc.offsetWidth : 0);
+  const rightPad = panelWidth + pad + 10; // 10px gap
+  // Use asymmetric padding: fit with uniform pad, then shift viewport left
+  cy.fit(undefined, pad);
+  // Now shift pan to add extra right clearance
+  const w = cy.width();
+  if (rightPad > pad && w > 0) {
+    const extraPx = rightPad - pad;
+    const zoom = cy.zoom();
+    const pan = cy.pan();
+    // Shift left by half the extra pixel space (to center in remaining area)
+    cy.pan({ x: pan.x - (extraPx / 2) * zoom, y: pan.y });
+    // Zoom out slightly to fit within the reduced width
+    const scale = (w - rightPad) / (w - pad);
+    if (scale > 0 && scale < 1) {
+      const cx = w / 2, cyy = cy.height() / 2;
+      cy.zoom({ level: zoom * scale, renderedPosition: { x: cx, y: cyy } });
+    }
+  }
+}
 
 // -- Search --
 const searchInput = document.getElementById('search-input');

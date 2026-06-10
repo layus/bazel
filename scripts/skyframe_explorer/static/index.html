@@ -39,12 +39,24 @@
     padding: 6px 10px; cursor: pointer; font-size: 12px;
     border-bottom: 1px solid #0f3460; display: flex; justify-content: space-between;
   }
-  .sr-item:hover { background: #1a5276; }
+  .sr-item:hover, .sr-item.sr-active { background: #1a5276; }
   .sr-item .sr-label { color: #e0e0e0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .sr-item .sr-type { color: #7f8c8d; font-size: 11px; margin-left: 8px; white-space: nowrap; }
   .sr-more { padding: 6px 10px; font-size: 11px; color: #e8d44d; text-align: center; }
   #stats { margin-left: auto; font-size: 12px; color: #7f8c8d; }
-  #cy { width: 100%; height: calc(100vh - 44px); }
+  #main-area { display: flex; flex-direction: column; height: calc(100vh - 44px); }
+  #detail-pane {
+    height: 160px; min-height: 80px; max-height: 50vh;
+    background: #0d1b2a; border-top: 1px solid #0f3460;
+    padding: 10px 16px; overflow-y: auto; font-size: 13px;
+    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    user-select: text; cursor: text; line-height: 1.6;
+    white-space: pre-line; resize: vertical;
+  }
+  #detail-pane .dp-empty { color: #555; font-style: italic; }
+  #detail-pane .dp-key { color: #7f8c8d; }
+  #detail-pane .dp-val { color: #e0e0e0; }
+  #detail-pane .dp-title { color: #e8d44d; font-weight: bold; margin-bottom: 6px; word-break: break-all; }
   #tooltip {
     display: none; position: fixed; padding: 8px 12px;
     background: #16213e; border: 1px solid #0f3460; border-radius: 6px;
@@ -64,6 +76,90 @@
   .ctx-item:hover { background: #1a5276; }
   .ctx-item.danger { color: #e74c3c; }
   .ctx-item.danger:hover { background: #5c1a1a; }
+  #filter-panel {
+    position: absolute; right: 10px; z-index: 1500;
+    background: rgba(22, 33, 62, 0.92); border: 1px solid #0f3460; border-radius: 6px;
+    padding: 8px 12px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    font-size: 12px;
+  }
+  #view-controls {
+    position: absolute; top: 10px; right: 10px; z-index: 1600;
+    background: rgba(22, 33, 62, 0.92); border: 1px solid #0f3460; border-radius: 6px;
+    padding: 6px 12px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    font-size: 11px;
+    display: flex; flex-direction: column; gap: 5px;
+  }
+  .vc-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    white-space: nowrap;
+  }
+  .vc-label { color: #bdc3c7; font-size: 10px; }
+  .vc-states { color: #7f8c8d; font-size: 9px; }
+  .toggle-switch {
+    position: relative; display: inline-block; width: 34px; height: 18px; flex-shrink: 0;
+  }
+  .toggle-switch input { opacity: 0; width: 0; height: 0; }
+  .toggle-slider {
+    position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+    background-color: #34495e; border-radius: 18px; transition: 0.25s;
+  }
+  .toggle-slider:before {
+    position: absolute; content: ''; height: 14px; width: 14px;
+    left: 2px; bottom: 2px; background-color: #bdc3c7;
+    border-radius: 50%; transition: 0.25s;
+  }
+  .toggle-switch input:checked + .toggle-slider { background-color: #3498db; }
+  .toggle-switch input:checked + .toggle-slider:before { transform: translateX(16px); background-color: #fff; }
+  .fp-header {
+    display: flex; align-items: center; cursor: pointer; user-select: none;
+  }
+  .fp-header .fp-toggle { color: #7f8c8d; margin-right: 6px; font-size: 10px; transition: transform 0.2s; }
+  .fp-header .fp-toggle.collapsed { transform: rotate(-90deg); }
+  .fp-header .fp-title { font-weight: bold; color: #e8d44d; font-size: 11px; white-space: nowrap; }
+  .fp-header .fp-enable { accent-color: #e67e22; cursor: pointer; flex-shrink: 0; }
+  .fp-header .fp-enable-label { color: #7f8c8d; font-size: 10px; margin-right: 4px; cursor: pointer; flex-shrink: 0; }
+  #fp-swatches-inline {
+    display: flex; flex: 1; overflow: hidden; gap: 2px; align-items: center;
+    margin: 0 6px; min-width: 0; visibility: hidden;
+  }
+  #fp-swatches-inline.show { visibility: visible; }
+  #fp-list { max-height: 50vh; overflow-y: auto; padding-right: 6px; }
+  #fp-list.collapsed { display: none; }
+  .fp-row { display: flex; align-items: center; gap: 6px; padding: 2px 0; cursor: pointer; transition: opacity 0.15s; }
+  .fp-row:hover { background: rgba(26, 82, 118, 0.3); }
+  .fp-row.fp-disabled { opacity: 0.35; }
+  .fp-row input[type=checkbox] { accent-color: #3498db; cursor: pointer; }
+  .fp-swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+  .fp-label { color: #bdc3c7; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fp-count { color: #7f8c8d; font-size: 10px; }
+  #fp-search {
+    width: 100%; box-sizing: border-box; margin-bottom: 4px;
+    padding: 3px 6px; font-size: 10px; border: 1px solid #0f3460;
+    border-radius: 3px; background: #0d1b2a; color: #e0e0e0; outline: none;
+  }
+  #fp-search:focus { border-color: #3498db; }
+  #fp-search::placeholder { color: #555; }
+  .dp-multi { color: #bdc3c7; }
+  .dp-multi-type { display: flex; gap: 8px; align-items: center; padding: 1px 0; }
+  .dp-multi-swatch { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+  .dp-children { margin-top: 8px; }
+  .dp-children-title { color: #e8d44d; font-size: 12px; font-weight: bold; margin-bottom: 4px; }
+  .dp-child {
+    display: flex; align-items: center; gap: 6px; padding: 2px 0;
+    font-size: 12px; white-space: nowrap;
+  }
+  .dp-child-swatch { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+  .dp-child-label { color: #bdc3c7; flex: 1; overflow: hidden; text-overflow: ellipsis; cursor: default; }
+  .dp-child-label.in-graph { color: #2ecc71; }
+  .dp-child-type { color: #7f8c8d; font-size: 10px; flex-shrink: 0; }
+  .dp-child-btn {
+    padding: 1px 6px; font-size: 10px; border: 1px solid #0f3460; border-radius: 3px;
+    background: #0f3460; color: #e0e0e0; cursor: pointer; flex-shrink: 0;
+  }
+  .dp-child-btn:hover { background: #1a5276; }
+  .dp-child-btn.pinned { background: #e67e22; border-color: #e67e22; color: #fff; }
 </style>
 </head>
 <body>
@@ -71,6 +167,7 @@
 <div id="toolbar">
   <button id="btn-refresh">&#x21bb; Refresh</button>
   <button id="btn-reset">Reset</button>
+  <button id="btn-redraw">Redraw</button>
   <button id="btn-fit">Fit</button>
   <div id="search-wrap">
     <input id="search-input" type="text" placeholder="Search nodes…" autocomplete="off">
@@ -79,15 +176,48 @@
   </div>
   <span id="stats"></span>
 </div>
-<div id="cy"></div>
+<div id="main-area">
+<div style="position:relative; flex:1; min-height:0;">
+  <div id="cy" style="width:100%;height:100%;"></div>
+  <div id="view-controls">
+    <div class="vc-row">
+      <span class="vc-label">Color by <span class="vc-states" id="vc-color-state">Type</span></span>
+      <label class="toggle-switch" title="Toggle between coloring by type and by config">
+        <input type="checkbox" id="vc-color-toggle">
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+    <div class="vc-row">
+      <span class="vc-label">Hide transitive <span class="vc-states" id="vc-trans-state">Off</span></span>
+      <label class="toggle-switch" title="Hide redundant transitive edges (A→C when A→B→C exists)">
+        <input type="checkbox" id="vc-trans-toggle">
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+  </div>
+  <div id="filter-panel">
+    <div class="fp-header" id="fp-header">
+      <span class="fp-toggle" id="fp-toggle">&#9660;</span>
+      <span class="fp-title">Type filters</span>
+      <div id="fp-swatches-inline"></div>
+      <label class="fp-enable-label" title="Enable/disable filtering">On</label>
+      <input type="checkbox" class="fp-enable" id="fp-enable" checked title="Enable/disable type filtering">
+    </div>
+    <div id="fp-list"></div>
+  </div>
+</div>
+<div id="detail-pane"><span class="dp-empty">Click a node to see details</span></div>
+</div>
 <div id="tooltip">
   <div class="tt-label" id="tt-label"></div>
   <div class="tt-row" id="tt-detail"></div>
 </div>
 <div id="ctx-menu">
-  <div class="ctx-item" id="ctx-expand">Expand</div>
-  <div class="ctx-item" id="ctx-fold">Fold</div>
-  <div class="ctx-item danger" id="ctx-remove">✖ Remove</div>
+  <div class="ctx-item" id="ctx-expand">&#9654; Expand children</div>
+  <div class="ctx-item" id="ctx-fold">&#9664; Hide children</div>
+  <div class="ctx-item" id="ctx-pin">&#128204; Pin</div>
+  <div class="ctx-item" id="ctx-unpin">Unpin</div>
+  <div class="ctx-item danger" id="ctx-remove">&#10006; Remove subtree</div>
 </div>
 
 <script>
@@ -104,6 +234,26 @@ function typeColor(ft) {
     TYPE_COLORS[ft] = PALETTE[Object.keys(TYPE_COLORS).length % PALETTE.length];
   }
   return TYPE_COLORS[ft];
+}
+
+const CONFIG_COLORS = {};
+const CONFIG_PALETTE = [
+  '#e6194b','#3cb44b','#ffe119','#4363d8','#f58231',
+  '#911eb4','#42d4f4','#f032e6','#bfef45','#fabed4',
+  '#469990','#dcbeff','#9A6324','#800000','#aaffc3',
+];
+function configColor(cfg) {
+  if (!cfg) return '#555555';
+  if (!(cfg in CONFIG_COLORS)) {
+    CONFIG_COLORS[cfg] = CONFIG_PALETTE[Object.keys(CONFIG_COLORS).length % CONFIG_PALETTE.length];
+  }
+  return CONFIG_COLORS[cfg];
+}
+
+let colorMode = 'type'; // 'type' or 'config'
+
+function nodeColor(ft, cfg) {
+  return colorMode === 'config' ? configColor(cfg) : typeColor(ft);
 }
 
 // -- Cytoscape init --
@@ -124,11 +274,10 @@ const cy = cytoscape({
         'border-width': 2,
         'border-color': '#1a1a2e',
         'width': 'label',
-        'height': 30,
+        'height': 'label',
         'padding': '8px',
         'shape': 'round-rectangle',
-        'text-wrap': 'ellipsis',
-        'text-max-width': '160px',
+        'text-wrap': 'wrap',
       }
     },
     {
@@ -136,6 +285,13 @@ const cy = cytoscape({
       style: {
         'border-color': '#e8d44d',
         'border-width': 3,
+      }
+    },
+    {
+      selector: 'node:selected',
+      style: {
+        'border-color': '#3498db',
+        'border-width': 4,
       }
     },
     {
@@ -153,7 +309,9 @@ const cy = cytoscape({
     {
       selector: 'node[?is_pinned]',
       style: {
-        'shape': 'diamond',
+        'border-color': '#e67e22',
+        'border-width': 2,
+        'border-style': 'double',
       }
     },
     {
@@ -170,12 +328,19 @@ const cy = cytoscape({
   ],
   layout: { name: 'preset' },
   wheelSensitivity: 0.3,
+  boxSelectionEnabled: true,
+  selectionType: 'additive',
 });
 
 // -- Helpers --
-function shortLabel(label, maxLen = 40) {
-  if (label.length <= maxLen) return label;
-  return label.substring(0, maxLen - 1) + '\u2026';
+function shortLabel(label, config, maxLen = 40) {
+  let display = label;
+  // Ellipsize from the LEFT so the target name (rightmost) stays visible
+  if (display.length > maxLen) {
+    display = '\u2026' + display.substring(display.length - maxLen + 1);
+  }
+  if (config) display += '\n' + config.substring(0, 6);
+  return display;
 }
 
 function updateStats(view) {
@@ -214,16 +379,19 @@ function applyView(view) {
     const sid = String(n.id);
     const data = {
       id: sid,
+      canonical_name: n.canonical_name,
       label: n.label,
-      shortLabel: shortLabel(n.label),
+      config: n.config || '',
+      shortLabel: (n.is_pinned ? '\ud83d\udccc ' : '') + shortLabel(n.label, n.config),
       function_type: n.function_type,
       is_done: n.is_done,
       dep_count: n.dep_count,
       expanded: n.expanded,
       is_root: n.is_root,
       is_pinned: n.is_pinned || false,
+      is_folded: n.is_folded || false,
       lifecycle_state: n.lifecycle_state,
-      color: typeColor(n.function_type),
+      color: nodeColor(n.function_type, n.config),
     };
     const existing = cy.getElementById(sid);
     if (existing.length) {
@@ -244,36 +412,431 @@ function applyView(view) {
     }
   }
 
-  // Animate added nodes
+  // Position added nodes at their parent's location so they animate outward
   const addedNodes = cy.nodes().filter(n => addedSet.has(n.id()));
   if (addedNodes.length) {
-    addedNodes.style('opacity', 0);
-    addedNodes.animate({ style: { opacity: 1 } }, { duration: 300 });
+    addedNodes.forEach(n => {
+      // Find a parent: look for an incoming edge from an existing node
+      const incomers = n.incomers('node').filter(p => !addedSet.has(p.id()));
+      if (incomers.length) {
+        const parentPos = incomers[0].position();
+        n.position({ x: parentPos.x, y: parentPos.y });
+      }
+    });
   }
 
   updateStats(view);
+  updateFilterCounts();
+  applyTypeFilter();
   relayout();
 }
 
+// -- Type filter state --
+const DEFAULT_ENABLED_TYPES = new Set(['BUILD_DRIVER', 'CONFIGURED_TARGET']);
+const hiddenTypes = new Set();  // populated after fetchTypes
+let filterCollapsed = false;
+let filterEnabled = true;
+
+function applyTypeFilter() {
+  cy.batch(() => {
+    cy.nodes().forEach(n => {
+      const ft = n.data('function_type');
+      const pinned = n.data('is_pinned');
+      if (filterEnabled && !pinned && hiddenTypes.has(ft)) {
+        n.style('display', 'none');
+      } else {
+        n.style('display', 'element');
+      }
+    });
+    cy.edges().forEach(e => {
+      const sv = e.source().style('display') !== 'none';
+      const tv = e.target().style('display') !== 'none';
+      e.style('display', (sv && tv) ? 'element' : 'none');
+    });
+  });
+  if (hideTransitive) applyTransitiveFilter();
+  // Re-layout after filter changes so hidden nodes don't leave gaps
+  relayout();
+}
+
+// allKnownTypes: fixed list fetched once from the backend at startup.
+let allKnownTypes = [];
+
+async function fetchTypes() {
+  try {
+    const resp = await fetch('/api/types');
+    if (resp.ok) {
+      const data = await resp.json();
+      allKnownTypes = data.types || [];
+      // Pre-assign colors in stable order
+      for (const ft of allKnownTypes) typeColor(ft);
+      // Default: hide all types except the default enabled set
+      hiddenTypes.clear();
+      for (const ft of allKnownTypes) {
+        if (!DEFAULT_ENABLED_TYPES.has(ft)) hiddenTypes.add(ft);
+      }
+      buildFilterPanel();
+    }
+  } catch (err) {
+    console.error('Failed to fetch types:', err);
+  }
+}
+
+function buildFilterPanel() {
+  const fpList = document.getElementById('fp-list');
+  const fpSwatches = document.getElementById('fp-swatches-inline');
+  fpList.innerHTML = '';
+  fpSwatches.innerHTML = '';
+
+  // Search bar for filtering the type list
+  const fpSearch = document.createElement('input');
+  fpSearch.id = 'fp-search';
+  fpSearch.type = 'text';
+  fpSearch.placeholder = 'Filter types…';
+  fpSearch.addEventListener('click', (e) => e.stopPropagation()); // don't toggle fold
+  fpSearch.addEventListener('input', () => {
+    const q = fpSearch.value.trim().toLowerCase();
+    fpList.querySelectorAll('.fp-row').forEach(row => {
+      row.style.display = row.dataset.ft.toLowerCase().includes(q) ? '' : 'none';
+    });
+  });
+  fpList.appendChild(fpSearch);
+
+  for (const ft of allKnownTypes) {
+    // Full row (expanded view)
+    const row = document.createElement('label');
+    row.className = 'fp-row' + (hiddenTypes.has(ft) ? ' fp-disabled' : '');
+    row.dataset.ft = ft;
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = !hiddenTypes.has(ft);
+    cb.addEventListener('change', () => {
+      if (cb.checked) { hiddenTypes.delete(ft); } else { hiddenTypes.add(ft); }
+      row.classList.toggle('fp-disabled', !cb.checked);
+      applyTypeFilter();
+      updateSwatches();
+    });
+    const swatch = document.createElement('span');
+    swatch.className = 'fp-swatch';
+    swatch.style.background = typeColor(ft);
+    const label = document.createElement('span');
+    label.className = 'fp-label';
+    label.textContent = ft;
+    const cnt = document.createElement('span');
+    cnt.className = 'fp-count';
+    cnt.dataset.ft = ft;
+    cnt.textContent = '';
+    row.appendChild(cb);
+    row.appendChild(swatch);
+    row.appendChild(label);
+    row.appendChild(cnt);
+    fpList.appendChild(row);
+
+    // Inline swatch in header (shown only for enabled types when collapsed)
+    const sw = document.createElement('span');
+    sw.className = 'fp-swatch';
+    sw.style.background = typeColor(ft);
+    sw.title = ft;
+    sw.dataset.ft = ft;
+    fpSwatches.appendChild(sw);
+  }
+  updateSwatches();
+  updateFilterFoldState();
+  // Lock width to the expanded size so collapsing doesn't shrink the panel
+  const panel = document.getElementById('filter-panel');
+  panel.style.width = 'auto';
+  requestAnimationFrame(() => {
+    panel.style.width = panel.offsetWidth + 'px';
+    // Position filter panel below view-controls
+    const vc = document.getElementById('view-controls');
+    panel.style.top = (vc.offsetTop + vc.offsetHeight + 6) + 'px';
+  });
+}
+
+function updateFilterCounts() {
+  const counts = {};
+  cy.nodes().forEach(n => {
+    const ft = n.data('function_type') || '(unknown)';
+    counts[ft] = (counts[ft] || 0) + 1;
+  });
+  document.querySelectorAll('#fp-list .fp-count').forEach(el => {
+    const ft = el.dataset.ft;
+    const c = counts[ft] || 0;
+    el.textContent = c > 0 ? c : '';
+  });
+}
+
+function updateSwatches() {
+  document.querySelectorAll('#fp-swatches-inline .fp-swatch').forEach(sw => {
+    sw.style.display = hiddenTypes.has(sw.dataset.ft) ? 'none' : 'inline-block';
+  });
+}
+
+function updateFilterFoldState() {
+  const toggle = document.getElementById('fp-toggle');
+  const fpList = document.getElementById('fp-list');
+  const fpSwatches = document.getElementById('fp-swatches-inline');
+  toggle.classList.toggle('collapsed', filterCollapsed);
+  fpList.classList.toggle('collapsed', filterCollapsed);
+  fpSwatches.classList.toggle('show', filterCollapsed);
+}
+
+document.getElementById('fp-header').addEventListener('click', (e) => {
+  // Don't toggle fold when clicking the enable checkbox
+  if (e.target.id === 'fp-enable' || e.target.classList.contains('fp-enable-label')) return;
+  filterCollapsed = !filterCollapsed;
+  updateFilterFoldState();
+});
+
+document.getElementById('fp-enable').addEventListener('change', (e) => {
+  filterEnabled = e.target.checked;
+  document.getElementById('fp-enable').labels[0].textContent = filterEnabled ? 'On' : 'Off';
+  applyTypeFilter();
+});
+
+// -- View controls: Color mode toggle --
+document.getElementById('vc-color-toggle').addEventListener('change', (e) => {
+  colorMode = e.target.checked ? 'config' : 'type';
+  document.getElementById('vc-color-state').textContent = e.target.checked ? 'Config' : 'Type';
+  recolorAll();
+});
+
+function recolorAll() {
+  cy.batch(() => {
+    cy.nodes().forEach(n => {
+      n.data('color', nodeColor(n.data('function_type'), n.data('config')));
+    });
+  });
+  // Update filter panel swatches: transparent when coloring by config
+  const isConfig = colorMode === 'config';
+  document.querySelectorAll('#fp-list .fp-swatch').forEach(sw => {
+    sw.style.background = isConfig ? 'transparent' : typeColor(sw.parentElement.dataset.ft);
+  });
+  document.querySelectorAll('#fp-swatches-inline .fp-swatch').forEach(sw => {
+    sw.style.background = isConfig ? 'transparent' : typeColor(sw.dataset.ft);
+  });
+}
+
+// -- View controls: Transitive edge hiding --
+let hideTransitive = false;
+
+document.getElementById('vc-trans-toggle').addEventListener('change', (e) => {
+  hideTransitive = e.target.checked;
+  document.getElementById('vc-trans-state').textContent = e.target.checked ? 'On' : 'Off';
+  applyTransitiveFilter();
+});
+
+function applyTransitiveFilter() {
+  cy.batch(() => {
+    if (!hideTransitive) {
+      // Show all edges (respect type filter visibility)
+      cy.edges().forEach(e => {
+        const sv = e.source().style('display') !== 'none';
+        const tv = e.target().style('display') !== 'none';
+        e.style('display', (sv && tv) ? 'element' : 'none');
+      });
+      return;
+    }
+    // Build adjacency from visible edges: for each node, its set of direct children
+    const visibleEdges = cy.edges().filter(e =>
+      e.source().style('display') !== 'none' && e.target().style('display') !== 'none'
+    );
+    // children[src] = Set of direct target ids
+    const children = {};
+    visibleEdges.forEach(e => {
+      const s = e.source().id(), t = e.target().id();
+      if (!children[s]) children[s] = new Set();
+      children[s].add(t);
+    });
+    // For edge A→C: it is transitive if there exists a B where A→B and B can reach C
+    // through a chain of other edges (i.e. A→C is redundant).
+    // Efficient: A→C is redundant if any other child B of A (B≠C) can reach C.
+    // We do BFS from A through children, excluding the direct A→C edge.
+    function isRedundant(src, tgt) {
+      const kids = children[src];
+      if (!kids || kids.size <= 1) return false;
+      // BFS from all other children of src
+      const visited = new Set();
+      const queue = [];
+      for (const b of kids) {
+        if (b !== tgt) { queue.push(b); visited.add(b); }
+      }
+      while (queue.length > 0) {
+        const cur = queue.shift();
+        if (cur === tgt) return true;
+        const next = children[cur];
+        if (next) {
+          for (const n of next) {
+            if (!visited.has(n)) { visited.add(n); queue.push(n); }
+          }
+        }
+      }
+      return false;
+    }
+    visibleEdges.forEach(e => {
+      const s = e.source().id(), t = e.target().id();
+      e.style('display', isRedundant(s, t) ? 'none' : 'element');
+    });
+  });
+}
+
 function relayout() {
-  cy.layout({
+  const layout = cy.layout({
     name: 'dagre',
-    rankDir: 'TB',
-    spacingFactor: 1.1,
+    rankDir: 'LR',
+    rankSep: 80,
+    nodeSep: 14,
+    edgeSep: 8,
+    spacingFactor: 1.0,
     animate: true,
     animationDuration: 300,
     nodeDimensionsIncludeLabels: true,
-  }).run();
+  });
+  layout.on('layoutstop', () => {
+    leftAlignRanks();
+  });
+  layout.run();
 }
 
-// -- Node click: expand/fold --
-cy.on('tap', 'node', async function(evt) {
+function leftAlignRanks() {
+  const ranks = {};
+  cy.nodes(':visible').forEach(n => {
+    const x = Math.round(n.position('x') / 10) * 10;
+    if (!ranks[x]) ranks[x] = [];
+    ranks[x].push(n);
+  });
+  for (const nodes of Object.values(ranks)) {
+    if (nodes.length < 2) continue;
+    nodes.sort((a, b) => a.position('y') - b.position('y'));
+    const topY = nodes[0].position('y');
+    let curY = topY;
+    for (const n of nodes) {
+      n.position('y', curY);
+      curY += n.outerHeight() + 8;
+    }
+  }
+}
+
+// -- Detail pane (native cy selection) --
+const detailPane = document.getElementById('detail-pane');
+
+function updateDetailPane() {
+  const sel = cy.$('node:selected');
+  if (sel.length === 0) {
+    detailPane.innerHTML = '<span class="dp-empty">Click a node to see details</span>';
+  } else if (sel.length === 1) {
+    showSingleNodeDetail(sel[0].data());
+  } else {
+    showMultiSelectDetail(sel);
+  }
+}
+
+function showSingleNodeDetail(d) {
+  const rows = [
+    ['ID', d.id],
+    ['Label', d.label],
+  ];
+  if (d.config) rows.push(['Config', d.config]);
+  rows.push(
+    ['Type', d.function_type],
+    ['Canonical', d.canonical_name],
+    ['Lifecycle', d.lifecycle_state || 'n/a'],
+    ['Done', d.is_done],
+    ['Deps', d.dep_count],
+    ['Expanded', d.expanded],
+    ['Pinned', d.is_pinned],
+    ['Root', d.is_root],
+  );
+  detailPane.innerHTML =
+    `<div class="dp-title">${escapeHtml(d.label)}</div>` +
+    rows.map(([k, v]) => `<span class="dp-key">${k}:</span> <span class="dp-val">${escapeHtml(String(v))}</span>`).join('\n') +
+    `<div class="dp-children"><div class="dp-children-title">Children (${d.dep_count})</div><div id="dp-children-list">Loading…</div></div>`;
+  // Fetch children asynchronously
+  fetchChildren(d.id);
+}
+
+async function fetchChildren(nodeId) {
+  const container = document.getElementById('dp-children-list');
+  if (!container) return;
+  try {
+    const resp = await fetch(`/api/children/${nodeId}`);
+    if (!resp.ok) { container.textContent = 'Failed to load'; return; }
+    const data = await resp.json();
+    if (data.children.length === 0) { container.textContent = 'No children'; return; }
+    container.innerHTML = '';
+    for (const child of data.children) {
+      const row = document.createElement('div');
+      row.className = 'dp-child';
+      const swatch = document.createElement('span');
+      swatch.className = 'dp-child-swatch';
+      swatch.style.background = typeColor(child.function_type);
+      const label = document.createElement('span');
+      label.className = 'dp-child-label' + (child.in_graph ? ' in-graph' : '');
+      label.textContent = child.label + (child.config ? ' ' + child.config.substring(0, 6) : '');
+      label.title = child.canonical_name;
+      const ft = document.createElement('span');
+      ft.className = 'dp-child-type';
+      ft.textContent = child.function_type;
+      const btn = document.createElement('button');
+      btn.className = 'dp-child-btn' + (child.is_pinned ? ' pinned' : '');
+      btn.textContent = child.is_pinned ? 'Unpin' : 'Pin';
+      btn.addEventListener('click', async () => {
+        try {
+          let view;
+          if (child.is_pinned) {
+            view = await api('POST', 'unpin/' + child.id);
+          } else {
+            view = await api('POST', 'pin/' + child.id);
+          }
+          applyView(view);
+          fetchChildren(nodeId);
+        } catch (err) {
+          console.error('Pin/unpin failed:', err);
+        }
+      });
+      row.appendChild(swatch);
+      row.appendChild(label);
+      row.appendChild(ft);
+      row.appendChild(btn);
+      container.appendChild(row);
+    }
+  } catch (err) {
+    container.textContent = 'Error: ' + err.message;
+  }
+}
+
+function showMultiSelectDetail(sel) {
+  const byType = {};
+  sel.forEach(n => {
+    const ft = n.data('function_type') || '(unknown)';
+    byType[ft] = (byType[ft] || 0) + 1;
+  });
+  const sorted = Object.entries(byType).sort((a, b) => b[1] - a[1]);
+  let html = `<div class="dp-title">${sel.length} nodes selected</div><div class="dp-multi">`;
+  for (const [ft, count] of sorted) {
+    const c = typeColor(ft);
+    html += `<div class="dp-multi-type"><span class="dp-multi-swatch" style="background:${c}"></span>${escapeHtml(ft)}: ${count}</div>`;
+  }
+  html += '</div>';
+  detailPane.innerHTML = html;
+}
+
+// Update detail pane on native cy selection changes
+cy.on('select unselect', 'node', updateDetailPane);
+
+// ===================================================================
+// Click behavior:
+//   - Single click: default cytoscape (select, drag, pan)
+//   - Double-click on node: expand (if folded) or fold (if expanded)
+//   - Right-click on node: context menu
+// ===================================================================
+
+cy.on('dbltap', 'node', async function(evt) {
   const node = evt.target;
   const nid = node.id();
   const expanded = node.data('expanded');
   const depCount = node.data('dep_count');
-
-  if (depCount === 0) return; // leaf node, nothing to do
+  if (depCount === 0) return;
 
   try {
     let view;
@@ -288,6 +851,13 @@ cy.on('tap', 'node', async function(evt) {
   }
 });
 
+// Click background: close context menu
+cy.on('tap', function(evt) {
+  if (evt.target === cy) {
+    ctxMenu.style.display = 'none';
+  }
+});
+
 // -- Context menu (right-click) --
 const ctxMenu = document.getElementById('ctx-menu');
 let ctxNodeId = null;
@@ -295,16 +865,20 @@ let ctxNodeId = null;
 cy.on('cxttap', 'node', function(evt) {
   evt.originalEvent.preventDefault();
   ctxNodeId = evt.target.id();
-  const expanded = evt.target.data('expanded');
-  document.getElementById('ctx-expand').style.display = expanded ? 'none' : 'block';
-  document.getElementById('ctx-fold').style.display = expanded ? 'block' : 'none';
+  const d = evt.target.data();
+  const expanded = d.expanded;
+  const hasDeps = d.dep_count > 0;
+  const pinned = d.is_pinned;
+  document.getElementById('ctx-expand').style.display = (!expanded && hasDeps) ? 'block' : 'none';
+  document.getElementById('ctx-fold').style.display = (expanded && hasDeps) ? 'block' : 'none';
+  document.getElementById('ctx-pin').style.display = pinned ? 'none' : 'block';
+  document.getElementById('ctx-unpin').style.display = pinned ? 'block' : 'none';
   ctxMenu.style.left = evt.originalEvent.clientX + 'px';
   ctxMenu.style.top = evt.originalEvent.clientY + 'px';
   ctxMenu.style.display = 'block';
 });
 
 document.addEventListener('click', () => { ctxMenu.style.display = 'none'; });
-cy.on('tap', function(evt) { if (evt.target === cy) ctxMenu.style.display = 'none'; });
 
 document.getElementById('ctx-expand').addEventListener('click', async () => {
   ctxMenu.style.display = 'none';
@@ -317,6 +891,20 @@ document.getElementById('ctx-fold').addEventListener('click', async () => {
   ctxMenu.style.display = 'none';
   if (!ctxNodeId) return;
   const view = await api('POST', 'fold/' + ctxNodeId);
+  applyView(view);
+});
+
+document.getElementById('ctx-pin').addEventListener('click', async () => {
+  ctxMenu.style.display = 'none';
+  if (!ctxNodeId) return;
+  const view = await api('POST', 'pin/' + ctxNodeId);
+  applyView(view);
+});
+
+document.getElementById('ctx-unpin').addEventListener('click', async () => {
+  ctxMenu.style.display = 'none';
+  if (!ctxNodeId) return;
+  const view = await api('POST', 'unpin/' + ctxNodeId);
   applyView(view);
 });
 
@@ -335,14 +923,13 @@ const ttDetail = document.getElementById('tt-detail');
 cy.on('mouseover', 'node', function(evt) {
   const d = evt.target.data();
   ttLabel.textContent = d.label;
-  ttDetail.innerHTML = [
-    `<b>ID:</b> ${d.id}`,
+  const parts = [
     `<b>Type:</b> ${d.function_type}`,
-    `<b>Done:</b> ${d.is_done}`,
-    `<b>Lifecycle:</b> ${d.lifecycle_state || 'n/a'}`,
     `<b>Deps:</b> ${d.dep_count}`,
-    `<b>Expanded:</b> ${d.expanded}`,
-  ].join(' &nbsp;|&nbsp; ');
+  ];
+  if (d.config) parts.push(`<b>Config:</b> ${d.config}`);
+  parts.push(`<b>Lifecycle:</b> ${d.lifecycle_state || 'n/a'}`);
+  ttDetail.innerHTML = parts.join(' &nbsp;|&nbsp; ');
   tooltip.style.display = 'block';
 });
 
@@ -361,12 +948,17 @@ cy.on('mousemove', function(evt) {
 document.getElementById('btn-refresh').addEventListener('click', async () => {
   const view = await api('POST', 'refresh');
   cy.elements().remove();
+  await fetchTypes();  // Refresh also re-indexes types
   applyView(view);
 });
 
 document.getElementById('btn-reset').addEventListener('click', async () => {
   const view = await api('POST', 'reset');
   applyView(view);
+});
+
+document.getElementById('btn-redraw').addEventListener('click', () => {
+  relayout();
 });
 
 document.getElementById('btn-fit').addEventListener('click', () => {
@@ -378,9 +970,19 @@ const searchInput = document.getElementById('search-input');
 const searchResults = document.getElementById('search-results');
 const searchInfo = document.getElementById('search-info');
 let searchDebounce = null;
+let searchIdx = -1;
+
+function updateSearchActive() {
+  const items = searchResults.querySelectorAll('.sr-item');
+  items.forEach((el, i) => el.classList.toggle('sr-active', i === searchIdx));
+  if (searchIdx >= 0 && searchIdx < items.length) {
+    items[searchIdx].scrollIntoView({ block: 'nearest' });
+  }
+}
 
 searchInput.addEventListener('input', () => {
   clearTimeout(searchDebounce);
+  searchIdx = -1;
   const q = searchInput.value.trim();
   if (q.length < 2) {
     searchResults.style.display = 'none';
@@ -395,6 +997,23 @@ searchInput.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     searchResults.style.display = 'none';
     searchInput.blur();
+    return;
+  }
+  const items = searchResults.querySelectorAll('.sr-item');
+  if (!items.length) return;
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    searchIdx = Math.min(searchIdx + 1, items.length - 1);
+    updateSearchActive();
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    searchIdx = Math.max(searchIdx - 1, 0);
+    updateSearchActive();
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (searchIdx >= 0 && searchIdx < items.length) {
+      items[searchIdx].click();
+    }
   }
 });
 
@@ -417,6 +1036,7 @@ async function doSearch(query) {
 
 function renderSearchResults(data, query) {
   searchResults.innerHTML = '';
+  searchIdx = -1;
   cy.nodes().removeClass('search-hit');
 
   if (data.nodes.length === 0) {
@@ -440,8 +1060,9 @@ function renderSearchResults(data, query) {
     const item = document.createElement('div');
     item.className = 'sr-item';
     const inGraph = cy.getElementById(String(n.id)).length > 0;
+    const cfgBit = n.config ? ' ' + n.config : '';
     item.innerHTML = `
-      <span class="sr-label">${escapeHtml(n.label)}</span>
+      <span class="sr-label">${escapeHtml(n.label)}${cfgBit}</span>
       <span class="sr-type">${n.function_type} | ${n.dep_count} deps${inGraph ? ' | \u2705 in view' : ''}</span>
     `;
     item.addEventListener('click', () => expandSearchResult(n.id));
@@ -486,6 +1107,7 @@ function escapeHtml(s) {
 
 // -- Initial load --
 (async function() {
+  await fetchTypes();
   const view = await api('GET', 'view');
   applyView(view);
 })();

@@ -92,6 +92,24 @@ message ListNodesRequest {
 
 // Response is a server stream of NodeInfo.
 
+// --- SearchNodes ---
+
+message SearchNodesRequest {
+  // Substring to search for in canonical names (case-insensitive).
+  string query = 1;
+  // Maximum number of results to return. Capped server-side at 100.
+  int32 max_results = 2;
+  NodeFieldFilter filter = 3;
+}
+
+message SearchNodesResponse {
+  repeated NodeInfo nodes = 1;
+  // Total number of nodes matching the query (may exceed nodes.size()).
+  int64 total_matches = 2;
+  // True if more results exist beyond max_results.
+  bool has_more = 3;
+}
+
 // --- RefreshIndex ---
 
 message RefreshIndexRequest {}
@@ -117,6 +135,9 @@ service SkyframeGraphService {
 
   // Stream nodes, optionally filtered by function type.
   rpc ListNodes(ListNodesRequest) returns (stream NodeInfo) {}
+
+  // Search nodes by substring match on canonical name.
+  rpc SearchNodes(SearchNodesRequest) returns (SearchNodesResponse) {}
 
   // Re-index the graph. Must be called after a build to refresh the snapshot.
   rpc RefreshIndex(RefreshIndexRequest) returns (RefreshIndexResponse) {}

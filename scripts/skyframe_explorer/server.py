@@ -6,6 +6,7 @@ MVC-style: this module is the Model (node cache, expanded set) and Controller
 """
 
 import argparse
+import functools
 import getpass
 import os
 import pathlib
@@ -26,6 +27,7 @@ import skyframe_graph_pb2_grpc
 # ---------------------------------------------------------------------------
 # Address detection (shared with skyframe_graph_dot.py)
 # ---------------------------------------------------------------------------
+
 
 def find_server_address(output_base: Optional[str] = None) -> Optional[str]:
     if output_base:
@@ -70,6 +72,7 @@ def grpc_address(address: str) -> str:
 # Model
 # ---------------------------------------------------------------------------
 
+
 class GraphModel:
     """Holds cached node data and the set of expanded node IDs."""
 
@@ -104,10 +107,13 @@ class GraphModel:
         resp = self.stub.RefreshIndex(skyframe_graph_pb2.RefreshIndexRequest())
         self.node_cache.clear()
         self.expanded.clear()
+        self.clear_search_cache()
         # Fetch roots
-        roots = list(self.stub.GetRoots(
-            skyframe_graph_pb2.GetRootsRequest(filter=self.ALL_FIELDS)
-        ))
+        roots = list(
+            self.stub.GetRoots(
+                skyframe_graph_pb2.GetRootsRequest(filter=self.ALL_FIELDS)
+            )
+        )
         self.root_ids = []
         for r in roots:
             d = self._proto_to_dict(r)
@@ -118,6 +124,42 @@ class GraphModel:
             "root_count": resp.root_count,
         }
 
+    def search(self, query: str, max_results: int = 20) -> dict:
+        """Search nodes via gRPC SearchNodes RPC. Results cached with LRU(1000)."""
+        return self._search_cached(query, max_results)
+
+    @functools.lru_cache(maxsize=1000)
+    def _search_cached(self, query: str, max_results: int) -> dict:
+        resp = self.stub.SearchNodes(
+            skyframe_graph_pb2.SearchNodesRequest(
+                query=query,
+                max_results=max_results,
+                filter=self.ALL_FIELDS,
+            )
+        )
+        nodes = []
+        for n in resp.nodes:
+            d = self._proto_to_dict(n)
+            self.node_cache[d["id"]] = d
+            nodes.append(
+                {
+                    "id": d["id"],
+                    "label": d["label"],
+                    "function_type": d["function_type"],
+                    "is_done": d["is_done"],
+                    "dep_count": len(d["dep_ids"]),
+                    "lifecycle_state": d["lifecycle_state"],
+                }
+            )
+        return {
+            "nodes": nodes,
+            "total_matches": resp.total_matches,
+            "has_more": resp.has_more,
+        }
+
+    def clear_search_cache(self):
+        self._search_cached.cache_clear()
+
     def _ensure_children(self, node_id: int):
         """Fetch children of node_id if not already cached."""
         node = self.node_cache.get(node_id)
@@ -126,9 +168,12 @@ class GraphModel:
         to_fetch = [did for did in node["dep_ids"] if did not in self.node_cache]
         if not to_fetch:
             return
-        resp = self.stub.GetNodes(skyframe_graph_pb2.GetNodesRequest(
-            ids=to_fetch, filter=self.ALL_FIELDS,
-        ))
+        resp = self.stub.GetNodes(
+            skyframe_graph_pb2.GetNodesRequest(
+                ids=to_fetch,
+                filter=self.ALL_FIELDS,
+            )
+        )
         for child in resp.nodes:
             d = self._proto_to_dict(child)
             self.node_cache[d["id"]] = d
@@ -186,16 +231,18 @@ class GraphModel:
             nd = self.node_cache.get(nid)
             if nd is None:
                 continue
-            nodes.append({
-                "id": nd["id"],
-                "label": nd["label"],
-                "function_type": nd["function_type"],
-                "is_done": nd["is_done"],
-                "dep_count": len(nd["dep_ids"]),
-                "expanded": nid in self.expanded,
-                "is_root": nid in root_set,
-                "lifecycle_state": nd["lifecycle_state"],
-            })
+            nodes.append(
+                {
+                    "id": nd["id"],
+                    "label": nd["label"],
+                    "function_type": nd["function_type"],
+                    "is_done": nd["is_done"],
+                    "dep_count": len(nd["dep_ids"]),
+                    "expanded": nid in self.expanded,
+                    "is_root": nid in root_set,
+                    "lifecycle_state": nd["lifecycle_state"],
+                }
+            )
 
         edges = []
         for nid in self.expanded:
@@ -281,6 +328,13 @@ async def api_reset():
     return model.compute_view_with_delta(old_ids)
 
 
+@app.get("/api/search")
+async def api_search(q: str, max_results: int = 20):
+    if not q or not q.strip():
+        raise HTTPException(400, "query must not be empty")
+    return model.search(q.strip(), min(max_results, 100))
+
+
 # Serve static assets (CSS, JS if any)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
@@ -288,6 +342,7 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 # ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
+
 
 def main():
     global model
@@ -312,7 +367,10 @@ def main():
 
     model = GraphModel(stub)
     stats = model.refresh()
-    print(f"  {stats['total_node_count']} nodes, {stats['root_count']} roots", file=sys.stderr)
+    print(
+        f"  {stats['total_node_count']} nodes, {stats['root_count']} roots",
+        file=sys.stderr,
+    )
     print(f"  {len(model.root_ids)} roots cached", file=sys.stderr)
 
     print(f"\nStarting server at http://{args.host}:{args.port}", file=sys.stderr)

@@ -18,6 +18,31 @@
     background: #0f3460; color: #e0e0e0; cursor: pointer; font-size: 13px;
   }
   #toolbar button:hover { background: #1a5276; }
+  #search-wrap {
+    position: relative; display: flex; align-items: center;
+  }
+  #search-input {
+    width: 280px; padding: 5px 10px; border: 1px solid #0f3460; border-radius: 4px;
+    background: #1a1a2e; color: #e0e0e0; font-size: 13px; outline: none;
+  }
+  #search-input:focus { border-color: #3b7195; }
+  #search-info {
+    font-size: 11px; color: #7f8c8d; margin-left: 6px; white-space: nowrap;
+  }
+  #search-results {
+    display: none; position: absolute; top: 100%; left: 0; z-index: 2000;
+    width: 500px; max-height: 400px; overflow-y: auto;
+    background: #16213e; border: 1px solid #0f3460; border-radius: 0 0 6px 6px;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.5);
+  }
+  .sr-item {
+    padding: 6px 10px; cursor: pointer; font-size: 12px;
+    border-bottom: 1px solid #0f3460; display: flex; justify-content: space-between;
+  }
+  .sr-item:hover { background: #1a5276; }
+  .sr-item .sr-label { color: #e0e0e0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sr-item .sr-type { color: #7f8c8d; font-size: 11px; margin-left: 8px; white-space: nowrap; }
+  .sr-more { padding: 6px 10px; font-size: 11px; color: #e8d44d; text-align: center; }
   #stats { margin-left: auto; font-size: 12px; color: #7f8c8d; }
   #cy { width: 100%; height: calc(100vh - 44px); }
   #tooltip {
@@ -36,6 +61,11 @@
   <button id="btn-refresh">&#x21bb; Refresh</button>
   <button id="btn-reset">Reset</button>
   <button id="btn-fit">Fit</button>
+  <div id="search-wrap">
+    <input id="search-input" type="text" placeholder="Search nodes…" autocomplete="off">
+    <span id="search-info"></span>
+    <div id="search-results"></div>
+  </div>
   <span id="stats"></span>
 </div>
 <div id="cy"></div>
@@ -95,6 +125,14 @@ const cy = cytoscape({
     {
       selector: 'node[dep_count = 0]',
       style: { 'opacity': 0.6 }
+    },
+    {
+      selector: 'node.search-hit',
+      style: {
+        'border-color': '#e74c3c',
+        'border-width': 4,
+        'z-index': 10,
+      }
     },
     {
       selector: 'edge',
@@ -272,6 +310,115 @@ document.getElementById('btn-reset').addEventListener('click', async () => {
 document.getElementById('btn-fit').addEventListener('click', () => {
   cy.fit(undefined, 30);
 });
+
+// -- Search --
+const searchInput = document.getElementById('search-input');
+const searchResults = document.getElementById('search-results');
+const searchInfo = document.getElementById('search-info');
+let searchDebounce = null;
+
+searchInput.addEventListener('input', () => {
+  clearTimeout(searchDebounce);
+  const q = searchInput.value.trim();
+  if (q.length < 2) {
+    searchResults.style.display = 'none';
+    searchInfo.textContent = '';
+    cy.nodes().removeClass('search-hit');
+    return;
+  }
+  searchDebounce = setTimeout(() => doSearch(q), 250);
+});
+
+searchInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    searchResults.style.display = 'none';
+    searchInput.blur();
+  }
+});
+
+document.addEventListener('click', (e) => {
+  if (!document.getElementById('search-wrap').contains(e.target)) {
+    searchResults.style.display = 'none';
+  }
+});
+
+async function doSearch(query) {
+  try {
+    const resp = await fetch(`/api/search?q=${encodeURIComponent(query)}&max_results=20`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    renderSearchResults(data, query);
+  } catch (err) {
+    console.error('Search failed:', err);
+  }
+}
+
+function renderSearchResults(data, query) {
+  searchResults.innerHTML = '';
+  cy.nodes().removeClass('search-hit');
+
+  if (data.nodes.length === 0) {
+    searchInfo.textContent = 'No matches';
+    searchResults.style.display = 'none';
+    return;
+  }
+
+  const matchText = data.has_more
+    ? `${data.nodes.length} of ${data.total_matches} matches (refine query)`
+    : `${data.total_matches} match${data.total_matches > 1 ? 'es' : ''}`;
+  searchInfo.textContent = matchText;
+
+  // Highlight nodes already in the graph
+  for (const n of data.nodes) {
+    const el = cy.getElementById(String(n.id));
+    if (el.length) el.addClass('search-hit');
+  }
+
+  for (const n of data.nodes) {
+    const item = document.createElement('div');
+    item.className = 'sr-item';
+    const inGraph = cy.getElementById(String(n.id)).length > 0;
+    item.innerHTML = `
+      <span class="sr-label">${escapeHtml(n.label)}</span>
+      <span class="sr-type">${n.function_type} | ${n.dep_count} deps${inGraph ? ' | \u2705 in view' : ''}</span>
+    `;
+    item.addEventListener('click', () => expandSearchResult(n.id));
+    searchResults.appendChild(item);
+  }
+
+  if (data.has_more) {
+    const more = document.createElement('div');
+    more.className = 'sr-more';
+    more.textContent = `Showing ${data.nodes.length} of ${data.total_matches} — refine your query for more`;
+    searchResults.appendChild(more);
+  }
+
+  searchResults.style.display = 'block';
+}
+
+async function expandSearchResult(nodeId) {
+  searchResults.style.display = 'none';
+  try {
+    const view = await api('POST', 'expand/' + nodeId);
+    applyView(view);
+    // Flash the node
+    setTimeout(() => {
+      const el = cy.getElementById(String(nodeId));
+      if (el.length) {
+        el.addClass('search-hit');
+        cy.animate({ center: { eles: el }, zoom: cy.zoom() }, { duration: 300 });
+      }
+    }, 350);
+  } catch (err) {
+    console.error('Expand from search failed:', err);
+  }
+}
+
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
 
 // -- Initial load --
 (async function() {

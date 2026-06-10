@@ -27,6 +27,8 @@ import com.google.devtools.build.lib.skyframe.graph.SkyframeGraphProtos.NodeFiel
 import com.google.devtools.build.lib.skyframe.graph.SkyframeGraphProtos.NodeInfo;
 import com.google.devtools.build.lib.skyframe.graph.SkyframeGraphProtos.RefreshIndexRequest;
 import com.google.devtools.build.lib.skyframe.graph.SkyframeGraphProtos.RefreshIndexResponse;
+import com.google.devtools.build.lib.skyframe.graph.SkyframeGraphProtos.SearchNodesRequest;
+import com.google.devtools.build.lib.skyframe.graph.SkyframeGraphProtos.SearchNodesResponse;
 import com.google.devtools.build.lib.skyframe.graph.SkyframeGraphServiceGrpc;
 import com.google.devtools.build.skyframe.InMemoryGraph;
 import com.google.devtools.build.skyframe.InMemoryNodeEntry;
@@ -37,6 +39,7 @@ import io.grpc.stub.StreamObserver;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.function.Supplier;
 import javax.annotation.Nullable;
 
@@ -281,6 +284,42 @@ public class SkyframeGraphServiceImpl
       }
       responseObserver.onNext(buildNodeInfo(idx, i, filter));
     }
+    responseObserver.onCompleted();
+  }
+
+  @Override
+  public void searchNodes(
+      SearchNodesRequest request, StreamObserver<SearchNodesResponse> responseObserver) {
+    GraphIndex idx = requireIndex(responseObserver);
+    if (idx == null) {
+      return;
+    }
+    String query = request.getQuery().toLowerCase(Locale.ROOT);
+    if (query.isEmpty()) {
+      responseObserver.onError(
+          Status.INVALID_ARGUMENT.withDescription("query must not be empty").asRuntimeException());
+      return;
+    }
+    int maxResults = request.getMaxResults();
+    if (maxResults <= 0) {
+      maxResults = 20;
+    }
+    maxResults = Math.min(maxResults, 100);
+
+    NodeFieldFilter filter = request.getFilter();
+    SearchNodesResponse.Builder resp = SearchNodesResponse.newBuilder();
+    int matches = 0;
+    for (int i = 0; i < idx.canonicalNames.length; i++) {
+      if (idx.canonicalNames[i].toLowerCase(Locale.ROOT).contains(query)) {
+        matches++;
+        if (resp.getNodesCount() < maxResults) {
+          resp.addNodes(buildNodeInfo(idx, i, filter));
+        }
+      }
+    }
+    resp.setTotalMatches(matches);
+    resp.setHasMore(matches > maxResults);
+    responseObserver.onNext(resp.build());
     responseObserver.onCompleted();
   }
 

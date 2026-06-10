@@ -60,6 +60,11 @@ class SkyframeGraphServiceStub(object):
                 request_serializer=skyframe__graph__pb2.ListNodesRequest.SerializeToString,
                 response_deserializer=skyframe__graph__pb2.NodeInfo.FromString,
                 _registered_method=True)
+        self.SearchNodes = channel.unary_unary(
+                '/skyframe_graph.SkyframeGraphService/SearchNodes',
+                request_serializer=skyframe__graph__pb2.SearchNodesRequest.SerializeToString,
+                response_deserializer=skyframe__graph__pb2.SearchNodesResponse.FromString,
+                _registered_method=True)
         self.RefreshIndex = channel.unary_unary(
                 '/skyframe_graph.SkyframeGraphService/RefreshIndex',
                 request_serializer=skyframe__graph__pb2.RefreshIndexRequest.SerializeToString,
@@ -106,6 +111,13 @@ class SkyframeGraphServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def SearchNodes(self, request, context):
+        """Search nodes by substring match on canonical name.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def RefreshIndex(self, request, context):
         """Re-index the graph. Must be called after a build to refresh the snapshot.
         """
@@ -140,6 +152,11 @@ def add_SkyframeGraphServiceServicer_to_server(servicer, server):
                     servicer.ListNodes,
                     request_deserializer=skyframe__graph__pb2.ListNodesRequest.FromString,
                     response_serializer=skyframe__graph__pb2.NodeInfo.SerializeToString,
+            ),
+            'SearchNodes': grpc.unary_unary_rpc_method_handler(
+                    servicer.SearchNodes,
+                    request_deserializer=skyframe__graph__pb2.SearchNodesRequest.FromString,
+                    response_serializer=skyframe__graph__pb2.SearchNodesResponse.SerializeToString,
             ),
             'RefreshIndex': grpc.unary_unary_rpc_method_handler(
                     servicer.RefreshIndex,
@@ -283,6 +300,33 @@ class SkyframeGraphService(object):
             '/skyframe_graph.SkyframeGraphService/ListNodes',
             skyframe__graph__pb2.ListNodesRequest.SerializeToString,
             skyframe__graph__pb2.NodeInfo.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SearchNodes(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/skyframe_graph.SkyframeGraphService/SearchNodes',
+            skyframe__graph__pb2.SearchNodesRequest.SerializeToString,
+            skyframe__graph__pb2.SearchNodesResponse.FromString,
             options,
             channel_credentials,
             insecure,

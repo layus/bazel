@@ -417,6 +417,27 @@ java_library_srcs(
     deps = [":xcode_java_proto"],
 )
 
+proto_library(
+    name = "skyframe_graph_proto",
+    srcs = ["skyframe_graph.proto"],
+)
+
+java_proto_library(
+    name = "skyframe_graph_java_proto",
+    deps = [":skyframe_graph_proto"],
+)
+
+java_grpc_library(
+    name = "skyframe_graph_java_grpc",
+    srcs = [":skyframe_graph_proto"],
+    deps = [":skyframe_graph_java_proto"],
+)
+
+java_library_srcs(
+    name = "skyframe_graph_java_proto_srcs",
+    deps = [":skyframe_graph_java_proto"],
+)
+
 filegroup(
     name = "srcs",
     srcs = glob(["**"]) + [
@@ -438,12 +459,14 @@ filegroup(
         ":invocation_policy_java_proto_srcs",
         ":libbazel_output_service_java_grpc-src.jar",
         ":libcommand_server_java_grpc-src.jar",
+        ":libskyframe_graph_java_grpc-src.jar",
         ":option_filters_java_proto_srcs",
         ":profile_java_proto_srcs",
         ":remote_execution_log_java_proto_srcs",
         ":remote_scrubbing_java_proto_srcs",
         ":spawn_java_proto_srcs",
         ":stardoc_output_java_proto_srcs",
+        ":skyframe_graph_java_proto_srcs",
         ":xcode_java_proto_srcs",
     ],
 )

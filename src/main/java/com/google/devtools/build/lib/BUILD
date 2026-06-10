@@ -465,6 +465,7 @@ java_library(
         "//src/main/java/com/google/devtools/build/lib/sandbox/cgroups",
         "//src/main/java/com/google/devtools/build/lib/sandbox/cgroups/proto:cgroups_info_java_proto",
         "//src/main/java/com/google/devtools/build/lib/server",
+        "//src/main/java/com/google/devtools/build/lib/server:skyframe_graph_service",
         "//src/main/java/com/google/devtools/build/lib/server:gc_and_interner_shrinking_idle_task",
         "//src/main/java/com/google/devtools/build/lib/server:idle_task",
         "//src/main/java/com/google/devtools/build/lib/server:install_base_garbage_collector",

@@ -1231,6 +1231,14 @@ public final class BlazeRuntime implements BugReport.BlazeRuntimeInterface {
               startupOptions.shutdownOnLowSysMem,
               startupOptions.idleServerTasks,
               getSlowInterruptMessageSuffix(blazeModules));
+      rpcServer.addExtraService(
+          new com.google.devtools.build.lib.server.SkyframeGraphServiceImpl(
+              () ->
+                  runtime
+                      .getWorkspace()
+                      .getSkyframeExecutor()
+                      .getEvaluator()
+                      .getInMemoryGraph()));
       rpcServerRef.set(rpcServer);
 
       // Register the signal handler.

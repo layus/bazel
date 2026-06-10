@@ -92,6 +92,20 @@ java_library(
 )
 
 java_library(
+    name = "skyframe_graph_service",
+    srcs = ["SkyframeGraphServiceImpl.java"],
+    deps = [
+        "//src/main/java/com/google/devtools/build/skyframe:skyframe",
+        "//src/main/java/com/google/devtools/build/skyframe:skyframe-objects",
+        "//src/main/protobuf:skyframe_graph_java_grpc",
+        "//src/main/protobuf:skyframe_graph_java_proto",
+        "//third_party:flogger",
+        "//third_party:jsr305",
+        "//third_party/grpc-java:grpc-jar",
+    ],
+)
+
+java_library(
     name = "gc_and_interner_shrinking_idle_task",
     srcs = [
         "GcAndInternerShrinkingIdleTask.java",

@@ -1,0 +1,123 @@
+// Copyright 2025 The Bazel Authors. All rights reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//    http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// gRPC service for querying the in-memory Skyframe graph. All data is
+// pre-computed at index time; no expensive on-the-fly computation is performed
+// when serving requests.
+syntax = "proto3";
+
+package skyframe_graph;
+
+option java_package = "com.google.devtools.build.lib.skyframe.graph";
+option java_outer_classname = "SkyframeGraphProtos";
+
+// Controls which optional fields are populated in NodeInfo responses.
+message NodeFieldFilter {
+  bool include_canonical_name = 1;
+  bool include_function_type = 2;
+  bool include_direct_deps = 3;
+  bool include_lifecycle_state = 4;
+}
+
+// Information about a single Skyframe node. Fields beyond id/is_done/keeps_edges
+// are only populated when requested via NodeFieldFilter.
+message NodeInfo {
+  int64 id = 1;
+  string canonical_name = 2;
+  string function_type = 3;
+  repeated int64 direct_dep_ids = 4;
+  string lifecycle_state = 5;
+  bool is_done = 6;
+  bool keeps_edges = 7;
+}
+
+// --- GetNode ---
+
+message GetNodeRequest {
+  int64 id = 1;
+  NodeFieldFilter filter = 2;
+}
+
+message GetNodeResponse {
+  NodeInfo node = 1;
+}
+
+// --- GetNodes (batch) ---
+
+message GetNodesRequest {
+  repeated int64 ids = 1;
+  NodeFieldFilter filter = 2;
+}
+
+message GetNodesResponse {
+  repeated NodeInfo nodes = 1;
+}
+
+// --- GetRoots ---
+
+message GetRootsRequest {
+  NodeFieldFilter filter = 1;
+}
+
+// Response is a server stream of NodeInfo.
+
+// --- GetGraphInfo ---
+
+message GetGraphInfoRequest {}
+
+message GetGraphInfoResponse {
+  int64 total_node_count = 1;
+  int64 root_count = 2;
+  bool keeps_edges = 3;
+}
+
+// --- ListNodes ---
+
+message ListNodesRequest {
+  // If non-empty, only return nodes whose function type matches this string.
+  string function_type_filter = 1;
+  NodeFieldFilter filter = 2;
+}
+
+// Response is a server stream of NodeInfo.
+
+// --- RefreshIndex ---
+
+message RefreshIndexRequest {}
+
+message RefreshIndexResponse {
+  int64 total_node_count = 1;
+  int64 root_count = 2;
+}
+
+// Service for querying the Skyframe in-memory graph.
+service SkyframeGraphService {
+  // Look up a single node by its integer ID.
+  rpc GetNode(GetNodeRequest) returns (GetNodeResponse) {}
+
+  // Look up multiple nodes by ID.
+  rpc GetNodes(GetNodesRequest) returns (GetNodesResponse) {}
+
+  // Stream all root nodes (nodes with zero reverse deps).
+  rpc GetRoots(GetRootsRequest) returns (stream NodeInfo) {}
+
+  // Return basic graph-level statistics.
+  rpc GetGraphInfo(GetGraphInfoRequest) returns (GetGraphInfoResponse) {}
+
+  // Stream nodes, optionally filtered by function type.
+  rpc ListNodes(ListNodesRequest) returns (stream NodeInfo) {}
+
+  // Re-index the graph. Must be called after a build to refresh the snapshot.
+  rpc RefreshIndex(RefreshIndexRequest) returns (RefreshIndexResponse) {}
+}

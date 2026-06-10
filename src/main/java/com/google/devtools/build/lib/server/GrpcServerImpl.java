@@ -73,6 +73,8 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
@@ -324,6 +326,8 @@ public class GrpcServerImpl extends CommandServerGrpc.CommandServerImplBase {
   private final int serverPid;
   private final int port;
 
+  private final List<io.grpc.BindableService> extraServices = new ArrayList<>();
+
   private Server server;
   private boolean serving;
 
@@ -369,6 +373,13 @@ public class GrpcServerImpl extends CommandServerGrpc.CommandServerImplBase {
     commandManager = new CommandManager(doIdleServerTasks, slowInterruptMessageSuffix);
   }
 
+  /** Registers an additional gRPC service to be served alongside the command server. */
+  public void addExtraService(io.grpc.BindableService service) {
+    Preconditions.checkState(!serving, "Cannot add services after serving has started");
+    extraServices.add(service);
+    logger.atInfo().log("Registered extra gRPC service: %s", service.getClass().getName());
+  }
+
   private static String generateCookie(SecureRandom random, int byteCount) {
     byte[] bytes = new byte[byteCount];
     random.nextBytes(bytes);
@@ -409,16 +420,22 @@ public class GrpcServerImpl extends CommandServerGrpc.CommandServerImplBase {
     commandManager.interruptInflightCommands();
   }
 
+  private NettyServerBuilder newServerBuilder(InetSocketAddress address) {
+    logger.atInfo().log(
+        "Building gRPC server at %s with %d extra service(s)", address, extraServices.size());
+    NettyServerBuilder builder = NettyServerBuilder.forAddress(address).addService(this);
+    for (io.grpc.BindableService svc : extraServices) {
+      logger.atInfo().log("  Adding service: %s", svc.getClass().getName());
+      builder.addService(svc);
+    }
+    return builder.directExecutor();
+  }
+
   private Server bindIpv6WithRetries(InetSocketAddress address, int maxRetries) throws IOException {
     Server server = null;
     for (int attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        server =
-            NettyServerBuilder.forAddress(address)
-                .addService(this)
-                .directExecutor()
-                .build()
-                .start();
+        server = newServerBuilder(address).build().start();
         break;
       } catch (IOException | RuntimeException e) {
         // NettyServerBuilder.build() can throw a RuntimeException on epoll failures.
@@ -455,12 +472,7 @@ public class GrpcServerImpl extends CommandServerGrpc.CommandServerImplBase {
     } catch (IOException ipv6Exception) {
       address = new InetSocketAddress("127.0.0.1", port);
       try {
-        server =
-            NettyServerBuilder.forAddress(address)
-                .addService(this)
-                .directExecutor()
-                .build()
-                .start();
+        server = newServerBuilder(address).build().start();
       } catch (IOException | RuntimeException ipv4Exception) {
         // NettyServerBuilder.build() can throw a RuntimeException on epoll failures.
         throw new AbruptExitException(

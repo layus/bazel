@@ -3,9 +3,8 @@
 <head>
 <meta charset="utf-8">
 <title>Skyframe Graph Explorer</title>
-<script src="https://unpkg.com/cytoscape@3.30.4/dist/cytoscape.min.js"></script>
+<script src="https://unpkg.com/d3@7/dist/d3.min.js"></script>
 <script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
-<script src="https://unpkg.com/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: system-ui, -apple-system, sans-serif; background: #1a1a2e; color: #e0e0e0; }
@@ -84,7 +83,7 @@
     font-size: 12px;
   }
   #view-controls {
-    position: absolute; right: 10px; z-index: 1400;
+    position: absolute; right: 10px; bottom: 10px; z-index: 1400;
     background: rgba(22, 33, 62, 0.92); border: 1px solid #0f3460; border-radius: 6px;
     padding: 6px 12px;
     box-shadow: 0 4px 16px rgba(0,0,0,0.4);
@@ -118,8 +117,6 @@
   .fp-header .fp-toggle { color: #7f8c8d; margin-right: 6px; font-size: 10px; transition: transform 0.2s; }
   .fp-header .fp-toggle.collapsed { transform: rotate(-90deg); }
   .fp-header .fp-title { font-weight: bold; color: #e8d44d; font-size: 11px; white-space: nowrap; }
-  .fp-header .fp-enable { accent-color: #e67e22; cursor: pointer; flex-shrink: 0; }
-  .fp-header .fp-enable-label { color: #7f8c8d; font-size: 10px; margin-right: 4px; cursor: pointer; flex-shrink: 0; }
   #fp-swatches-inline {
     display: flex; flex: 1; overflow: hidden; gap: 2px; align-items: center;
     margin: 0 6px; min-width: 0; visibility: hidden;
@@ -160,6 +157,21 @@
   }
   .dp-child-btn:hover { background: #1a5276; }
   .dp-child-btn.pinned { background: #e67e22; border-color: #e67e22; color: #fff; }
+  #graph-container { width: 100%; height: 100%; overflow: hidden; }
+  #graph-container svg { width: 100%; height: 100%; }
+  .graph-node { cursor: pointer; }
+  .graph-node rect { rx: 6; ry: 6; stroke: #1a1a2e; stroke-width: 2; }
+  .graph-node.expanded rect { stroke: #e8d44d; stroke-width: 3; }
+  .graph-node.selected rect { stroke: #3498db; stroke-width: 4; }
+  .graph-node.search-hit rect { stroke: #e74c3c; stroke-width: 4; }
+  .graph-node.leaf { opacity: 0.6; }
+  .graph-node text { fill: #e0e0e0; font-size: 9px; font-family: system-ui, sans-serif;
+    paint-order: stroke; stroke: #1a1a2e; stroke-width: 0.8px; stroke-linecap: round; stroke-linejoin: round; }
+  .graph-edge line { stroke: #34495e; stroke-width: 1; }
+  .graph-edge polygon { fill: #34495e; }
+  .graph-edge path { stroke: #34495e; stroke-width: 1; fill: none; }
+  .graph-edge .arrowhead { fill: #34495e; stroke: none; }
+  .box-select-rect { fill: rgba(52, 152, 219, 0.15); stroke: #3498db; stroke-width: 1; stroke-dasharray: 4 2; }
 </style>
 </head>
 <body>
@@ -169,6 +181,7 @@
   <button id="btn-reset">Reset</button>
   <button id="btn-redraw">Redraw</button>
   <button id="btn-fit">Fit</button>
+  <button id="btn-export-svg" title="Export graph as SVG file">&#x1F4BE; SVG</button>
   <div id="search-wrap">
     <input id="search-input" type="text" placeholder="Search nodes…" autocomplete="off">
     <span id="search-info"></span>
@@ -178,14 +191,12 @@
 </div>
 <div id="main-area">
 <div style="position:relative; flex:1; min-height:0;">
-  <div id="cy" style="width:100%;height:100%;"></div>
+  <div id="graph-container"></div>
   <div id="filter-panel">
     <div class="fp-header" id="fp-header">
       <span class="fp-toggle" id="fp-toggle">&#9660;</span>
       <span class="fp-title">Type filters</span>
       <div id="fp-swatches-inline"></div>
-      <label class="fp-enable-label" title="Enable/disable filtering">On</label>
-      <input type="checkbox" class="fp-enable" id="fp-enable" checked title="Enable/disable type filtering">
     </div>
     <div id="fp-list"></div>
   </div>
@@ -208,6 +219,15 @@
       </label>
       <span class="vc-state" id="vc-trans-right">Hide</span>
     </div>
+    <div class="vc-row">
+      <span class="vc-title">Filtering</span>
+      <span class="vc-state" id="vc-filter-left">Off</span>
+      <label class="toggle-switch" title="Enable/disable type filtering">
+        <input type="checkbox" id="vc-filter-toggle" checked>
+        <span class="toggle-slider"></span>
+      </label>
+      <span class="vc-state vc-active" id="vc-filter-right">On</span>
+    </div>
   </div>
 </div>
 <div id="detail-pane"><span class="dp-empty">Click a node to see details</span></div>
@@ -225,7 +245,11 @@
 </div>
 
 <script>
-// -- Color palette for function types --
+// =====================================================================
+// Skyframe Graph Explorer – D3 + SVG renderer
+// =====================================================================
+
+// -- Color palettes --
 const TYPE_COLORS = {};
 const PALETTE = [
   '#e74c3c','#3498db','#2ecc71','#e67e22','#9b59b6',
@@ -234,12 +258,9 @@ const PALETTE = [
 ];
 function typeColor(ft) {
   if (!ft) return '#7f8c8d';
-  if (!(ft in TYPE_COLORS)) {
-    TYPE_COLORS[ft] = PALETTE[Object.keys(TYPE_COLORS).length % PALETTE.length];
-  }
+  if (!(ft in TYPE_COLORS)) TYPE_COLORS[ft] = PALETTE[Object.keys(TYPE_COLORS).length % PALETTE.length];
   return TYPE_COLORS[ft];
 }
-
 const CONFIG_COLORS = {};
 const CONFIG_PALETTE = [
   '#e6194b','#3cb44b','#ffe119','#4363d8','#f58231',
@@ -248,101 +269,24 @@ const CONFIG_PALETTE = [
 ];
 function configColor(cfg) {
   if (!cfg) return '#555555';
-  if (!(cfg in CONFIG_COLORS)) {
-    CONFIG_COLORS[cfg] = CONFIG_PALETTE[Object.keys(CONFIG_COLORS).length % CONFIG_PALETTE.length];
-  }
+  if (!(cfg in CONFIG_COLORS)) CONFIG_COLORS[cfg] = CONFIG_PALETTE[Object.keys(CONFIG_COLORS).length % CONFIG_PALETTE.length];
   return CONFIG_COLORS[cfg];
 }
-
 function nodeColor(ft, cfg) {
   return viewConfig.colorMode === 'config' ? configColor(cfg) : typeColor(ft);
 }
 
-// -- Cytoscape init --
-const cy = cytoscape({
-  container: document.getElementById('cy'),
-  style: [
-    {
-      selector: 'node',
-      style: {
-        'label': 'data(shortLabel)',
-        'text-valign': 'center',
-        'text-halign': 'center',
-        'font-size': '9px',
-        'color': '#e0e0e0',
-        'text-outline-color': '#1a1a2e',
-        'text-outline-width': 1,
-        'background-color': 'data(color)',
-        'border-width': 2,
-        'border-color': '#1a1a2e',
-        'width': 'label',
-        'height': 'label',
-        'padding': '8px',
-        'shape': 'round-rectangle',
-        'text-wrap': 'wrap',
-      }
-    },
-    {
-      selector: 'node[?expanded]',
-      style: {
-        'border-color': '#e8d44d',
-        'border-width': 3,
-      }
-    },
-    {
-      selector: 'node:selected',
-      style: {
-        'border-color': '#3498db',
-        'border-width': 4,
-      }
-    },
-    {
-      selector: 'node[dep_count = 0]',
-      style: { 'opacity': 0.6 }
-    },
-    {
-      selector: 'node.search-hit',
-      style: {
-        'border-color': '#e74c3c',
-        'border-width': 4,
-        'z-index': 10,
-      }
-    },
-    {
-      selector: 'node[?is_pinned]',
-      style: {
-        'border-color': '#e67e22',
-        'border-width': 2,
-        'border-style': 'double',
-      }
-    },
-    {
-      selector: 'edge',
-      style: {
-        'width': 1,
-        'line-color': '#34495e',
-        'target-arrow-color': '#34495e',
-        'target-arrow-shape': 'triangle',
-        'curve-style': 'bezier',
-        'arrow-scale': 0.6,
-      }
-    },
-  ],
-  layout: { name: 'preset' },
-  wheelSensitivity: 0.3,
-  boxSelectionEnabled: true,
-  selectionType: 'additive',
-});
-
 // -- Helpers --
 function shortLabel(label, config, maxLen = 40) {
   let display = label;
-  // Ellipsize from the LEFT so the target name (rightmost) stays visible
-  if (display.length > maxLen) {
-    display = '\u2026' + display.substring(display.length - maxLen + 1);
-  }
-  if (config) display += '\n' + config.substring(0, 6);
-  return display;
+  if (display.length > maxLen) display = '\u2026' + display.substring(display.length - maxLen + 1);
+  return { line1: display, line2: config ? config.substring(0, 6) : '' };
+}
+
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
 }
 
 function updateStats(view) {
@@ -357,34 +301,206 @@ async function api(method, path) {
   return resp.json();
 }
 
-// -- Render view --
+// =====================================================================
+// Graph data model (maps, not Cytoscape)
+// =====================================================================
+const graphNodes = new Map(); // id -> node data object
+const graphEdges = new Map(); // "src->tgt" -> {source, target}
+const selectedNodes = new Set(); // ids
+const searchHitNodes = new Set(); // ids
+
+// =====================================================================
+// SVG setup with D3
+// =====================================================================
+const container = document.getElementById('graph-container');
+const svg = d3.select(container).append('svg');
+const defs = svg.append('defs');
+defs.append('marker')
+  .attr('id', 'arrowhead')
+  .attr('viewBox', '0 0 10 7')
+  .attr('refX', 10).attr('refY', 3.5)
+  .attr('markerWidth', 8).attr('markerHeight', 6)
+  .attr('orient', 'auto')
+  .append('polygon')
+  .attr('points', '0 0, 10 3.5, 0 7')
+  .attr('fill', '#34495e');
+
+const gRoot = svg.append('g').attr('class', 'graph-root');
+const gEdges = gRoot.append('g').attr('class', 'edges-layer');
+const gNodes = gRoot.append('g').attr('class', 'nodes-layer');
+
+// D3 zoom — shift events are intercepted by box-select before D3 sees them
+const zoomBehavior = d3.zoom()
+  .scaleExtent([0.05, 5])
+  .on('zoom', (event) => { gRoot.attr('transform', event.transform); });
+
+// Intercept shift+pointer events on SVG node in capture phase BEFORE
+// D3 zoom can call setPointerCapture and steal them.
+const svgNode = svg.node();
+svgNode.addEventListener('pointerdown', function(event) {
+  if (!event.shiftKey) return;
+  event.stopImmediatePropagation();  // block D3 zoom entirely
+  event.preventDefault();
+  const pt = d3.pointer(event, gRoot.node());
+  boxStartPt = { x: pt[0], y: pt[1] };
+  boxSelectRect = gRoot.append('rect')
+    .attr('class', 'box-select-rect')
+    .attr('x', boxStartPt.x).attr('y', boxStartPt.y)
+    .attr('width', 0).attr('height', 0);
+}, true);
+
+svg.call(zoomBehavior);
+// Prevent context menu on SVG
+svg.on('contextmenu', (event) => event.preventDefault());
+
+// -- Node drag behavior (supports group drag for multi-select) --
+const nodeDrag = d3.drag()
+  .filter((event) => !event.shiftKey)  // let shift events pass through for box select
+  .on('start', function(event, d) {
+    // Record offset between mouse position and node center for ALL selected nodes
+    const hw = (d._w || 0) / 2, hh = (d._h || 0) / 2;
+    d._dragOffX = d.x - (event.x + hw);
+    d._dragOffY = d.y - (event.y + hh);
+    // If this node is selected, store offsets for all selected nodes relative to this one
+    if (selectedNodes.has(d.id) && selectedNodes.size > 1) {
+      d._groupDrag = [];
+      for (const sid of selectedNodes) {
+        if (sid === d.id) continue;
+        const snd = graphNodes.get(sid);
+        if (snd) d._groupDrag.push({ id: sid, dx: snd.x - d.x, dy: snd.y - d.y });
+      }
+    }
+  })
+  .on('drag', function(event, d) {
+    const hw = (d._w || 0) / 2, hh = (d._h || 0) / 2;
+    d.x = event.x + hw + (d._dragOffX || 0);
+    d.y = event.y + hh + (d._dragOffY || 0);
+    d3.select(this).attr('transform', `translate(${d.x - hw}, ${d.y - hh})`);
+    // Move all other selected nodes
+    if (d._groupDrag) {
+      for (const g of d._groupDrag) {
+        const snd = graphNodes.get(g.id);
+        if (!snd) continue;
+        snd.x = d.x + g.dx;
+        snd.y = d.y + g.dy;
+        gNodes.selectAll('g.graph-node')
+          .filter(n => n.id === g.id)
+          .attr('transform', `translate(${snd.x - (snd._w || 0) / 2}, ${snd.y - (snd._h || 0) / 2})`);
+      }
+    }
+    updateEdgePositions();
+  })
+  .on('end', function(event, d) {
+    delete d._dragOffX; delete d._dragOffY; delete d._groupDrag;
+  });
+
+function updateEdgePositions() {
+  gEdges.selectAll('g.graph-edge').select('line')
+    .attr('x1', function() {
+      const key = d3.select(this.parentNode).datum().key;
+      const e = graphEdges.get(key);
+      const src = graphNodes.get(e.source);
+      return src ? src.x + (src._w || 0) / 2 : 0;
+    })
+    .attr('y1', function() {
+      const key = d3.select(this.parentNode).datum().key;
+      const e = graphEdges.get(key);
+      const src = graphNodes.get(e.source);
+      return src ? src.y : 0;
+    })
+    .attr('x2', function() {
+      const key = d3.select(this.parentNode).datum().key;
+      const e = graphEdges.get(key);
+      const tgt = graphNodes.get(e.target);
+      return tgt ? tgt.x - (tgt._w || 0) / 2 : 0;
+    })
+    .attr('y2', function() {
+      const key = d3.select(this.parentNode).datum().key;
+      const e = graphEdges.get(key);
+      const tgt = graphNodes.get(e.target);
+      return tgt ? tgt.y : 0;
+    });
+}
+
+// -- Shift+drag box selection --
+let boxSelectRect = null;
+let boxStartPt = null;
+// pointerdown is handled above (before svg.call(zoomBehavior))
+
+document.addEventListener('pointermove', function(event) {
+  if (!boxSelectRect) return;
+  const pt = d3.pointer(event, gRoot.node());
+  const x = Math.min(boxStartPt.x, pt[0]);
+  const y = Math.min(boxStartPt.y, pt[1]);
+  const w = Math.abs(pt[0] - boxStartPt.x);
+  const h = Math.abs(pt[1] - boxStartPt.y);
+  boxSelectRect.attr('x', x).attr('y', y).attr('width', w).attr('height', h);
+});
+
+document.addEventListener('pointerup', function(event) {
+  if (!boxSelectRect) return;
+  const pt = d3.pointer(event, gRoot.node());
+  const x1 = Math.min(boxStartPt.x, pt[0]);
+  const y1 = Math.min(boxStartPt.y, pt[1]);
+  const x2 = Math.max(boxStartPt.x, pt[0]);
+  const y2 = Math.max(boxStartPt.y, pt[1]);
+
+  // Select nodes within the box
+  if (!event.ctrlKey && !event.metaKey) selectedNodes.clear();
+  for (const id of visibleNodes) {
+    const nd = graphNodes.get(id);
+    if (!nd) continue;
+    if (nd.x >= x1 && nd.x <= x2 && nd.y >= y1 && nd.y <= y2) {
+      selectedNodes.add(id);
+    }
+  }
+
+  boxSelectRect.remove();
+  boxSelectRect = null;
+  boxStartPt = null;
+  renderGraph();
+  updateDetailPane();
+});
+
+// =====================================================================
+// Measure text width using a hidden SVG text element
+// =====================================================================
+const _measureG = svg.append('g').style('visibility', 'hidden');
+const _measureText = _measureG.append('text').style('font-size', '9px').style('font-family', 'system-ui, sans-serif');
+function measureText(str) {
+  _measureText.text(str);
+  return _measureText.node().getComputedTextLength();
+}
+
+// =====================================================================
+// applyView – sync graph data model from API response
+// =====================================================================
 function applyView(view) {
-  const existingIds = new Set(cy.nodes().map(n => n.id()));
   const newIds = new Set(view.nodes.map(n => String(n.id)));
   const addedSet = new Set((view.added_node_ids || []).map(String));
-  const removedSet = new Set((view.removed_node_ids || []).map(String));
 
-  // Remove nodes no longer visible
-  const toRemove = cy.nodes().filter(n => !newIds.has(n.id()));
-  toRemove.remove();
-
-  // Remove edges that are no longer in the view
+  // Remove old nodes
+  for (const id of graphNodes.keys()) {
+    if (!newIds.has(id)) { graphNodes.delete(id); selectedNodes.delete(id); searchHitNodes.delete(id); }
+  }
+  // Remove old edges
   const edgeSet = new Set(view.edges.map(e => e.source + '->' + e.target));
-  const staleEdges = cy.edges().filter(e => {
-    const key = e.source().id() + '->' + e.target().id();
-    return !edgeSet.has(key);
-  });
-  staleEdges.remove();
+  for (const key of graphEdges.keys()) {
+    if (!edgeSet.has(key)) graphEdges.delete(key);
+  }
 
   // Add/update nodes
   for (const n of view.nodes) {
     const sid = String(n.id);
-    const data = {
+    const sl = shortLabel(n.label, n.config);
+    const existing = graphNodes.get(sid);
+    graphNodes.set(sid, {
       id: sid,
       canonical_name: n.canonical_name,
       label: n.label,
       config: n.config || '',
-      shortLabel: (n.is_pinned ? '\ud83d\udccc ' : '') + shortLabel(n.label, n.config),
+      line1: sl.line1,
+      line2: sl.line2,
       function_type: n.function_type,
       is_done: n.is_done,
       dep_count: n.dep_count,
@@ -393,92 +509,74 @@ function applyView(view) {
       is_pinned: n.is_pinned || false,
       is_folded: n.is_folded || false,
       lifecycle_state: n.lifecycle_state,
-      color: nodeColor(n.function_type, n.config),
-    };
-    const existing = cy.getElementById(sid);
-    if (existing.length) {
-      existing.data(data);
-    } else {
-      cy.add({ group: 'nodes', data });
-    }
+      // Preserve position for existing nodes; new nodes get parent pos below
+      x: existing ? existing.x : 0,
+      y: existing ? existing.y : 0,
+      _added: addedSet.has(sid),
+    });
   }
 
   // Add edges
   for (const e of view.edges) {
-    const eid = e.source + '->' + e.target;
-    if (!cy.getElementById(eid).length) {
-      cy.add({
-        group: 'edges',
-        data: { id: eid, source: String(e.source), target: String(e.target) },
-      });
-    }
+    const key = e.source + '->' + e.target;
+    if (!graphEdges.has(key)) graphEdges.set(key, { source: String(e.source), target: String(e.target) });
   }
 
-  // Position added nodes at their parent's location so they animate outward
-  const addedNodes = cy.nodes().filter(n => addedSet.has(n.id()));
-  if (addedNodes.length) {
-    addedNodes.forEach(n => {
-      // Find a parent: look for an incoming edge from an existing node
-      const incomers = n.incomers('node').filter(p => !addedSet.has(p.id()));
-      if (incomers.length) {
-        const parentPos = incomers[0].position();
-        n.position({ x: parentPos.x, y: parentPos.y });
+  // Position added nodes at parent
+  for (const [id, nd] of graphNodes) {
+    if (!nd._added) continue;
+    // Find a parent via incoming edge
+    for (const e of graphEdges.values()) {
+      if (e.target === id && graphNodes.has(e.source) && !graphNodes.get(e.source)._added) {
+        const parent = graphNodes.get(e.source);
+        nd.x = parent.x; nd.y = parent.y;
+        break;
       }
-    });
+    }
+    nd._added = false;
   }
 
   updateStats(view);
   updateFilterCounts();
-  applyTypeFilter();
-  relayout();
+  applyViewConfig();
 }
 
-// -- Reactive view config --
-// All view state lives here. Any mutation triggers applyViewConfig().
+// =====================================================================
+// Reactive view config
+// =====================================================================
 const DEFAULT_ENABLED_TYPES = new Set(['BUILD_DRIVER', 'CONFIGURED_TARGET']);
-const hiddenTypes = new Set();  // populated after fetchTypes
+const hiddenTypes = new Set();
 let filterCollapsed = false;
 
-const _viewState = {
-  filterEnabled: true,
-  colorMode: 'type',   // 'type' | 'config'
-  hideTransitive: false,
-};
+const _viewState = { filterEnabled: true, colorMode: 'type', hideTransitive: false };
 const viewConfig = new Proxy(_viewState, {
   set(target, prop, value) {
-    if (target[prop] === value) return true;
     target[prop] = value;
     applyViewConfig();
     return true;
   }
 });
 
+// Visibility sets computed by applyViewConfig
+const visibleNodes = new Set();
+const visibleEdges = new Set(); // edge keys
+const hiddenEdgesTransitive = new Set();
+
 function applyViewConfig() {
-  // 1. Node visibility (type filter)
-  cy.batch(() => {
-    cy.nodes().forEach(n => {
-      const ft = n.data('function_type');
-      const pinned = n.data('is_pinned');
-      if (viewConfig.filterEnabled && !pinned && hiddenTypes.has(ft)) {
-        n.style('display', 'none');
-      } else {
-        n.style('display', 'element');
-      }
-    });
-    cy.edges().forEach(e => {
-      const sv = e.source().style('display') !== 'none';
-      const tv = e.target().style('display') !== 'none';
-      e.style('display', (sv && tv) ? 'element' : 'none');
-    });
-  });
-  // 2. Transitive edge hiding
-  if (viewConfig.hideTransitive) applyTransitiveFilter();
-  // 3. Recolor nodes
-  cy.batch(() => {
-    cy.nodes().forEach(n => {
-      n.data('color', nodeColor(n.data('function_type'), n.data('config')));
-    });
-  });
+  // 1. Node visibility
+  visibleNodes.clear();
+  for (const [id, nd] of graphNodes) {
+    const hidden = viewConfig.filterEnabled && !nd.is_pinned && hiddenTypes.has(nd.function_type);
+    if (!hidden) visibleNodes.add(id);
+  }
+  // 2. Edge visibility
+  visibleEdges.clear();
+  for (const [key, e] of graphEdges) {
+    if (visibleNodes.has(e.source) && visibleNodes.has(e.target)) visibleEdges.add(key);
+  }
+  // 3. Transitive reduction
+  hiddenEdgesTransitive.clear();
+  if (viewConfig.hideTransitive) computeTransitiveReduction();
   // 4. Update filter panel swatches
   const isConfig = viewConfig.colorMode === 'config';
   document.querySelectorAll('#fp-list .fp-swatch').forEach(sw => {
@@ -487,14 +585,239 @@ function applyViewConfig() {
   document.querySelectorAll('#fp-swatches-inline .fp-swatch').forEach(sw => {
     sw.style.background = isConfig ? 'transparent' : typeColor(sw.dataset.ft);
   });
-  // 5. Always relayout
+  // 5. Layout + render
   relayout();
 }
 
-// Legacy alias used by applyView and buildFilterPanel
 function applyTypeFilter() { applyViewConfig(); }
 
-// allKnownTypes: fixed list fetched once from the backend at startup.
+function computeTransitiveReduction() {
+  const adj = {};
+  for (const key of visibleEdges) {
+    const e = graphEdges.get(key);
+    if (!adj[e.source]) adj[e.source] = new Set();
+    adj[e.source].add(e.target);
+  }
+  const reachCache = {};
+  function reachableFrom(node) {
+    if (reachCache[node]) return reachCache[node];
+    const reached = new Set();
+    const stack = [node];
+    while (stack.length > 0) {
+      const cur = stack.pop();
+      const succs = adj[cur];
+      if (succs) for (const s of succs) { if (!reached.has(s)) { reached.add(s); stack.push(s); } }
+    }
+    reachCache[node] = reached;
+    return reached;
+  }
+  for (const key of visibleEdges) {
+    const e = graphEdges.get(key);
+    const kids = adj[e.source];
+    if (kids && kids.size > 1) {
+      for (const b of kids) {
+        if (b !== e.target && reachableFrom(b).has(e.target)) {
+          hiddenEdgesTransitive.add(key);
+          break;
+        }
+      }
+    }
+  }
+}
+
+// =====================================================================
+// Layout using dagre directly
+// =====================================================================
+function relayout() {
+  const g = new dagre.graphlib.Graph();
+  g.setGraph({ rankdir: 'LR', align: 'DL', ranksep: 80, nodesep: 14, edgesep: 8 });
+  g.setDefaultEdgeLabel(() => ({}));
+
+  for (const id of visibleNodes) {
+    const nd = graphNodes.get(id);
+    const w1 = measureText(nd.line1);
+    const w2 = nd.line2 ? measureText(nd.line2) : 0;
+    const w = Math.max(w1, w2) + 16; // padding
+    const h = nd.line2 ? 30 : 22;
+    g.setNode(id, { width: w, height: h });
+  }
+  for (const key of visibleEdges) {
+    if (hiddenEdgesTransitive.has(key)) continue;
+    const e = graphEdges.get(key);
+    g.setEdge(e.source, e.target);
+  }
+
+  dagre.layout(g);
+
+  // Update node positions
+  for (const id of visibleNodes) {
+    const nd = graphNodes.get(id);
+    const dagreNode = g.node(id);
+    if (dagreNode) {
+      nd.x = dagreNode.x;
+      nd.y = dagreNode.y;
+      nd._w = dagreNode.width;
+      nd._h = dagreNode.height;
+    }
+  }
+
+  renderGraph();
+}
+
+// =====================================================================
+// SVG rendering
+// =====================================================================
+function renderGraph() {
+  // -- Edges --
+  const edgeData = [];
+  for (const key of visibleEdges) {
+    if (hiddenEdgesTransitive.has(key)) continue;
+    const e = graphEdges.get(key);
+    const src = graphNodes.get(e.source);
+    const tgt = graphNodes.get(e.target);
+    if (src && tgt && visibleNodes.has(e.source) && visibleNodes.has(e.target)) {
+      edgeData.push({ key, x1: src.x + (src._w || 0) / 2, y1: src.y, x2: tgt.x - (tgt._w || 0) / 2, y2: tgt.y });
+    }
+  }
+
+  const edges = gEdges.selectAll('g.graph-edge').data(edgeData, d => d.key);
+  edges.exit().remove();
+  const edgesEnter = edges.enter().append('g').attr('class', 'graph-edge');
+  edgesEnter.append('line');
+  const edgesMerged = edgesEnter.merge(edges);
+  edgesMerged.select('line')
+    .attr('x1', d => d.x1).attr('y1', d => d.y1)
+    .attr('x2', d => d.x2).attr('y2', d => d.y2)
+    .attr('marker-end', 'url(#arrowhead)');
+
+  // -- Nodes --
+  const nodeData = [];
+  for (const id of visibleNodes) {
+    const nd = graphNodes.get(id);
+    if (nd) nodeData.push(nd);
+  }
+
+  const nodes = gNodes.selectAll('g.graph-node').data(nodeData, d => d.id);
+  nodes.exit().remove();
+
+  const nodesEnter = nodes.enter().append('g').attr('class', 'graph-node');
+  nodesEnter.append('rect');
+  nodesEnter.append('foreignObject').attr('class', 'pin-icon');
+  nodesEnter.append('text').attr('class', 'node-line1');
+  nodesEnter.append('text').attr('class', 'node-line2');
+
+  const nodesMerged = nodesEnter.merge(nodes);
+
+  // Update classes
+  nodesMerged
+    .classed('expanded', d => d.expanded)
+    .classed('selected', d => selectedNodes.has(d.id))
+    .classed('search-hit', d => searchHitNodes.has(d.id))
+    .classed('pinned', d => d.is_pinned)
+    .classed('leaf', d => d.dep_count === 0);
+
+  // Position & size
+  nodesMerged.attr('transform', d => `translate(${d.x - (d._w || 0) / 2}, ${d.y - (d._h || 0) / 2})`);
+
+  nodesMerged.select('rect')
+    .attr('width', d => d._w || 0)
+    .attr('height', d => d._h || 0)
+    .attr('fill', d => nodeColor(d.function_type, d.config));
+
+  // Pin icon: 📌 emoji via foreignObject, pinning into top-left of box
+  const pinSel = nodesMerged.select('.pin-icon')
+    .attr('x', -8)
+    .attr('y', -12)
+    .attr('width', 16)
+    .attr('height', 16)
+    .style('overflow', 'visible')
+    .style('pointer-events', 'none')
+    .style('display', d => d.is_pinned ? null : 'none');
+  // Ensure the inner HTML span exists
+  pinSel.each(function() {
+    if (!this.firstChild) {
+      const span = document.createElementNS('http://www.w3.org/1999/xhtml', 'span');
+      span.style.cssText = 'font-size:12px; line-height:1; transform:scaleX(-1); display:inline-block;';
+      span.textContent = '\uD83D\uDCCC';
+      this.appendChild(span);
+    }
+  });
+
+  nodesMerged.select('.node-line1')
+    .attr('x', d => (d._w || 0) / 2)
+    .attr('y', d => d.line2 ? (d._h || 0) / 2 - 4 : (d._h || 0) / 2 + 3)
+    .attr('text-anchor', 'middle')
+    .text(d => d.line1);
+
+  nodesMerged.select('.node-line2')
+    .attr('x', d => (d._w || 0) / 2)
+    .attr('y', d => (d._h || 0) / 2 + 8)
+    .attr('text-anchor', 'middle')
+    .attr('fill', '#aaa')
+    .text(d => d.line2 || '');
+
+  // -- Drag + Interactions --
+  nodesMerged.call(nodeDrag);
+  nodesMerged
+    .on('click', function(event, d) {
+      event.stopPropagation();
+      if (event.ctrlKey || event.metaKey || event.shiftKey) {
+        // Multi-select
+        if (selectedNodes.has(d.id)) selectedNodes.delete(d.id); else selectedNodes.add(d.id);
+      } else {
+        selectedNodes.clear();
+        selectedNodes.add(d.id);
+      }
+      renderGraph();
+      updateDetailPane();
+      ctxMenu.style.display = 'none';
+    })
+    .on('dblclick', async function(event, d) {
+      event.stopPropagation();
+      if (d.dep_count === 0) return;
+      try {
+        const view = await api('POST', d.expanded ? 'fold/' + d.id : 'expand/' + d.id);
+        applyView(view);
+      } catch (err) { console.error('Action failed:', err); }
+    })
+    .on('contextmenu', function(event, d) {
+      event.preventDefault();
+      event.stopPropagation();
+      ctxNodeId = d.id;
+      document.getElementById('ctx-expand').style.display = (!d.expanded && d.dep_count > 0) ? 'block' : 'none';
+      document.getElementById('ctx-fold').style.display = (d.expanded && d.dep_count > 0) ? 'block' : 'none';
+      document.getElementById('ctx-pin').style.display = d.is_pinned ? 'none' : 'block';
+      document.getElementById('ctx-unpin').style.display = d.is_pinned ? 'block' : 'none';
+      ctxMenu.style.left = event.clientX + 'px';
+      ctxMenu.style.top = event.clientY + 'px';
+      ctxMenu.style.display = 'block';
+    })
+    .on('mouseenter', function(event, d) {
+      ttLabel.textContent = d.label;
+      const parts = [`<b>Type:</b> ${d.function_type}`, `<b>Deps:</b> ${d.dep_count}`];
+      if (d.config) parts.push(`<b>Config:</b> ${d.config}`);
+      parts.push(`<b>Lifecycle:</b> ${d.lifecycle_state || 'n/a'}`);
+      ttDetail.innerHTML = parts.join(' &nbsp;|&nbsp; ');
+      tooltip.style.display = 'block';
+    })
+    .on('mouseleave', function() { tooltip.style.display = 'none'; })
+    .on('mousemove', function(event) {
+      tooltip.style.left = (event.clientX + 14) + 'px';
+      tooltip.style.top = (event.clientY + 14) + 'px';
+    });
+}
+
+// Click background to deselect
+svg.on('click', () => {
+  selectedNodes.clear();
+  renderGraph();
+  updateDetailPane();
+  ctxMenu.style.display = 'none';
+});
+
+// =====================================================================
+// Filter panel
+// =====================================================================
 let allKnownTypes = [];
 
 async function fetchTypes() {
@@ -503,18 +826,14 @@ async function fetchTypes() {
     if (resp.ok) {
       const data = await resp.json();
       allKnownTypes = data.types || [];
-      // Pre-assign colors in stable order
       for (const ft of allKnownTypes) typeColor(ft);
-      // Default: hide all types except the default enabled set
       hiddenTypes.clear();
       for (const ft of allKnownTypes) {
         if (!DEFAULT_ENABLED_TYPES.has(ft)) hiddenTypes.add(ft);
       }
       buildFilterPanel();
     }
-  } catch (err) {
-    console.error('Failed to fetch types:', err);
-  }
+  } catch (err) { console.error('Failed to fetch types:', err); }
 }
 
 function buildFilterPanel() {
@@ -523,12 +842,11 @@ function buildFilterPanel() {
   fpList.innerHTML = '';
   fpSwatches.innerHTML = '';
 
-  // Search bar for filtering the type list
   const fpSearch = document.createElement('input');
   fpSearch.id = 'fp-search';
   fpSearch.type = 'text';
-  fpSearch.placeholder = 'Filter types…';
-  fpSearch.addEventListener('click', (e) => e.stopPropagation()); // don't toggle fold
+  fpSearch.placeholder = 'Filter types\u2026';
+  fpSearch.addEventListener('click', (e) => e.stopPropagation());
   fpSearch.addEventListener('input', () => {
     const q = fpSearch.value.trim().toLowerCase();
     fpList.querySelectorAll('.fp-row').forEach(row => {
@@ -538,7 +856,6 @@ function buildFilterPanel() {
   fpList.appendChild(fpSearch);
 
   for (const ft of allKnownTypes) {
-    // Full row (expanded view)
     const row = document.createElement('label');
     row.className = 'fp-row' + (hiddenTypes.has(ft) ? ' fp-disabled' : '');
     row.dataset.ft = ft;
@@ -546,7 +863,7 @@ function buildFilterPanel() {
     cb.type = 'checkbox';
     cb.checked = !hiddenTypes.has(ft);
     cb.addEventListener('change', () => {
-      if (cb.checked) { hiddenTypes.delete(ft); } else { hiddenTypes.add(ft); }
+      if (cb.checked) hiddenTypes.delete(ft); else hiddenTypes.add(ft);
       row.classList.toggle('fp-disabled', !cb.checked);
       updateSwatches();
       applyViewConfig();
@@ -567,7 +884,6 @@ function buildFilterPanel() {
     row.appendChild(cnt);
     fpList.appendChild(row);
 
-    // Inline swatch in header (shown only for enabled types when collapsed)
     const sw = document.createElement('span');
     sw.className = 'fp-swatch';
     sw.style.background = typeColor(ft);
@@ -577,26 +893,21 @@ function buildFilterPanel() {
   }
   updateSwatches();
   updateFilterFoldState();
-  // Lock width to the expanded size so collapsing doesn't shrink the panel
   const panel = document.getElementById('filter-panel');
   panel.style.width = 'auto';
   requestAnimationFrame(() => {
     panel.style.width = panel.offsetWidth + 'px';
-    // Position view-controls below filter panel
-    const vc = document.getElementById('view-controls');
-    vc.style.top = (panel.offsetTop + panel.offsetHeight + 6) + 'px';
   });
 }
 
 function updateFilterCounts() {
   const counts = {};
-  cy.nodes().forEach(n => {
-    const ft = n.data('function_type') || '(unknown)';
+  for (const nd of graphNodes.values()) {
+    const ft = nd.function_type || '(unknown)';
     counts[ft] = (counts[ft] || 0) + 1;
-  });
+  }
   document.querySelectorAll('#fp-list .fp-count').forEach(el => {
-    const ft = el.dataset.ft;
-    const c = counts[ft] || 0;
+    const c = counts[el.dataset.ft] || 0;
     el.textContent = c > 0 ? c : '';
   });
 }
@@ -617,167 +928,64 @@ function updateFilterFoldState() {
 }
 
 document.getElementById('fp-header').addEventListener('click', (e) => {
-  // Don't toggle fold when clicking the enable checkbox
-  if (e.target.id === 'fp-enable' || e.target.classList.contains('fp-enable-label')) return;
   filterCollapsed = !filterCollapsed;
   updateFilterFoldState();
 });
 
-document.getElementById('fp-enable').addEventListener('change', (e) => {
-  document.getElementById('fp-enable').labels[0].textContent = e.target.checked ? 'On' : 'Off';
-  viewConfig.filterEnabled = e.target.checked;
-});
 
-// -- View controls: Color mode toggle --
+// =====================================================================
+// View control toggles
+// =====================================================================
 document.getElementById('vc-color-toggle').addEventListener('change', (e) => {
   document.getElementById('vc-color-left').classList.toggle('vc-active', !e.target.checked);
   document.getElementById('vc-color-right').classList.toggle('vc-active', e.target.checked);
   viewConfig.colorMode = e.target.checked ? 'config' : 'type';
 });
 
-// -- View controls: Transitive edge hiding --
 document.getElementById('vc-trans-toggle').addEventListener('change', (e) => {
   document.getElementById('vc-trans-left').classList.toggle('vc-active', !e.target.checked);
   document.getElementById('vc-trans-right').classList.toggle('vc-active', e.target.checked);
   viewConfig.hideTransitive = e.target.checked;
 });
 
-function applyTransitiveFilter() {
-  cy.batch(() => {
-    if (!viewConfig.hideTransitive) {
-      // Show all edges (respect type filter visibility)
-      cy.edges().forEach(e => {
-        const sv = e.source().style('display') !== 'none';
-        const tv = e.target().style('display') !== 'none';
-        e.style('display', (sv && tv) ? 'element' : 'none');
-      });
-      return;
-    }
-    // Transitive reduction: hide edge A→C if C is reachable from A
-    // via paths of length ≥ 2 through the FULL adjacency graph.
-    // 1. Build full adjacency from visible edges
-    const visibleEdges = cy.edges().filter(e =>
-      e.source().style('display') !== 'none' && e.target().style('display') !== 'none'
-    );
-    const adj = {};  // adj[node] = Set of direct successors
-    visibleEdges.forEach(e => {
-      const s = e.source().id(), t = e.target().id();
-      if (!adj[s]) adj[s] = new Set();
-      adj[s].add(t);
-    });
-    // 2. For each node, compute its full reachability set (BFS/DFS)
-    //    and cache it (memoize).
-    const reachCache = {};
-    function reachableFrom(node) {
-      if (reachCache[node]) return reachCache[node];
-      const reached = new Set();
-      const stack = [node];
-      while (stack.length > 0) {
-        const cur = stack.pop();
-        const succs = adj[cur];
-        if (succs) {
-          for (const s of succs) {
-            if (!reached.has(s)) { reached.add(s); stack.push(s); }
-          }
-        }
-      }
-      reachCache[node] = reached;
-      return reached;
-    }
-    // 3. Edge A→C is redundant if any OTHER direct successor B of A
-    //    (B ≠ C) can reach C through the full graph.
-    visibleEdges.forEach(e => {
-      const src = e.source().id(), tgt = e.target().id();
-      const kids = adj[src];
-      let redundant = false;
-      if (kids && kids.size > 1) {
-        for (const b of kids) {
-          if (b !== tgt && reachableFrom(b).has(tgt)) {
-            redundant = true;
-            break;
-          }
-        }
-      }
-      e.style('display', redundant ? 'none' : 'element');
-    });
-  });
-}
+document.getElementById('vc-filter-toggle').addEventListener('change', (e) => {
+  document.getElementById('vc-filter-left').classList.toggle('vc-active', !e.target.checked);
+  document.getElementById('vc-filter-right').classList.toggle('vc-active', e.target.checked);
+  viewConfig.filterEnabled = e.target.checked;
+  filterCollapsed = !e.target.checked;
+  updateFilterFoldState();
+});
 
-function relayout() {
-  // Only lay out visible elements so hidden nodes don't affect positioning
-  const visibleEles = cy.elements().filter(ele => ele.style('display') !== 'none');
-  const layout = visibleEles.layout({
-    name: 'dagre',
-    rankDir: 'LR',
-    align: 'DL',
-    rankSep: 80,
-    nodeSep: 14,
-    edgeSep: 8,
-    spacingFactor: 1.0,
-    animate: true,
-    animationDuration: 300,
-    nodeDimensionsIncludeLabels: true,
-  });
-  layout.on('layoutstop', () => {
-    leftAlignRanks();
-  });
-  layout.run();
-}
-
-function leftAlignRanks() {
-  const ranks = {};
-  cy.nodes(':visible').forEach(n => {
-    const x = Math.round(n.position('x') / 10) * 10;
-    if (!ranks[x]) ranks[x] = [];
-    ranks[x].push(n);
-  });
-  for (const nodes of Object.values(ranks)) {
-    if (nodes.length < 2) continue;
-    nodes.sort((a, b) => a.position('y') - b.position('y'));
-    const topY = nodes[0].position('y');
-    let curY = topY;
-    for (const n of nodes) {
-      n.position('y', curY);
-      curY += n.outerHeight() + 8;
-    }
-  }
-}
-
-// -- Detail pane (native cy selection) --
+// =====================================================================
+// Detail pane
+// =====================================================================
 const detailPane = document.getElementById('detail-pane');
 
 function updateDetailPane() {
-  const sel = cy.$('node:selected');
-  if (sel.length === 0) {
+  if (selectedNodes.size === 0) {
     detailPane.innerHTML = '<span class="dp-empty">Click a node to see details</span>';
-  } else if (sel.length === 1) {
-    showSingleNodeDetail(sel[0].data());
+  } else if (selectedNodes.size === 1) {
+    const id = [...selectedNodes][0];
+    const nd = graphNodes.get(id);
+    if (nd) showSingleNodeDetail(nd);
   } else {
-    showMultiSelectDetail(sel);
+    showMultiSelectDetail();
   }
 }
 
 function showSingleNodeDetail(d) {
-  const rows = [
-    ['ID', d.id],
-    ['Label', d.label],
-  ];
+  const rows = [['ID', d.id], ['Label', d.label]];
   if (d.config) rows.push(['Config', d.config]);
   rows.push(
-    ['Type', d.function_type],
-    ['Canonical', d.canonical_name],
-    ['Lifecycle', d.lifecycle_state || 'n/a'],
-    ['Done', d.is_done],
-    ['Deps', d.dep_count],
-    ['Expanded', d.expanded],
-    ['Pinned', d.is_pinned],
-    ['Root', d.is_root],
+    ['Type', d.function_type], ['Canonical', d.canonical_name],
+    ['Lifecycle', d.lifecycle_state || 'n/a'], ['Done', d.is_done],
+    ['Deps', d.dep_count], ['Expanded', d.expanded],
+    ['Pinned', d.is_pinned], ['Root', d.is_root],
   );
   detailPane.innerHTML =
     `<div class="dp-title">${escapeHtml(d.label)}</div>` +
     rows.map(([k, v]) => `<span class="dp-key">${k}:</span> <span class="dp-val">${escapeHtml(String(v))}</span>`).join('\n') +
-    `<div class="dp-children"><div class="dp-children-title">Children (${d.dep_count})</div><div id="dp-children-list">Loading…</div></div>`;
-  // Fetch children asynchronously
+    `<div class="dp-children"><div class="dp-children-title">Children (${d.dep_count})</div><div id="dp-children-list">Loading\u2026</div></div>`;
   fetchChildren(d.id);
 }
 
@@ -808,17 +1016,10 @@ async function fetchChildren(nodeId) {
       btn.textContent = child.is_pinned ? 'Unpin' : 'Pin';
       btn.addEventListener('click', async () => {
         try {
-          let view;
-          if (child.is_pinned) {
-            view = await api('POST', 'unpin/' + child.id);
-          } else {
-            view = await api('POST', 'pin/' + child.id);
-          }
+          const view = await api('POST', child.is_pinned ? 'unpin/' + child.id : 'pin/' + child.id);
           applyView(view);
           fetchChildren(nodeId);
-        } catch (err) {
-          console.error('Pin/unpin failed:', err);
-        }
+        } catch (err) { console.error('Pin/unpin failed:', err); }
       });
       row.appendChild(swatch);
       row.appendChild(label);
@@ -826,198 +1027,149 @@ async function fetchChildren(nodeId) {
       row.appendChild(btn);
       container.appendChild(row);
     }
-  } catch (err) {
-    container.textContent = 'Error: ' + err.message;
-  }
+  } catch (err) { container.textContent = 'Error: ' + err.message; }
 }
 
-function showMultiSelectDetail(sel) {
+function showMultiSelectDetail() {
   const byType = {};
-  sel.forEach(n => {
-    const ft = n.data('function_type') || '(unknown)';
+  for (const id of selectedNodes) {
+    const nd = graphNodes.get(id);
+    if (!nd) continue;
+    const ft = nd.function_type || '(unknown)';
     byType[ft] = (byType[ft] || 0) + 1;
-  });
+  }
   const sorted = Object.entries(byType).sort((a, b) => b[1] - a[1]);
-  let html = `<div class="dp-title">${sel.length} nodes selected</div><div class="dp-multi">`;
+  let html = `<div class="dp-title">${selectedNodes.size} nodes selected</div><div class="dp-multi">`;
   for (const [ft, count] of sorted) {
-    const c = typeColor(ft);
-    html += `<div class="dp-multi-type"><span class="dp-multi-swatch" style="background:${c}"></span>${escapeHtml(ft)}: ${count}</div>`;
+    html += `<div class="dp-multi-type"><span class="dp-multi-swatch" style="background:${typeColor(ft)}"></span>${escapeHtml(ft)}: ${count}</div>`;
   }
   html += '</div>';
   detailPane.innerHTML = html;
 }
 
-// Update detail pane on native cy selection changes
-cy.on('select unselect', 'node', updateDetailPane);
-
-// ===================================================================
-// Click behavior:
-//   - Single click: default cytoscape (select, drag, pan)
-//   - Double-click on node: expand (if folded) or fold (if expanded)
-//   - Right-click on node: context menu
-// ===================================================================
-
-cy.on('dbltap', 'node', async function(evt) {
-  const node = evt.target;
-  const nid = node.id();
-  const expanded = node.data('expanded');
-  const depCount = node.data('dep_count');
-  if (depCount === 0) return;
-
-  try {
-    let view;
-    if (expanded) {
-      view = await api('POST', 'fold/' + nid);
-    } else {
-      view = await api('POST', 'expand/' + nid);
-    }
-    applyView(view);
-  } catch (err) {
-    console.error('Action failed:', err);
-  }
-});
-
-// Click background: close context menu
-cy.on('tap', function(evt) {
-  if (evt.target === cy) {
-    ctxMenu.style.display = 'none';
-  }
-});
-
-// -- Context menu (right-click) --
+// =====================================================================
+// Context menu
+// =====================================================================
 const ctxMenu = document.getElementById('ctx-menu');
 let ctxNodeId = null;
-
-cy.on('cxttap', 'node', function(evt) {
-  evt.originalEvent.preventDefault();
-  ctxNodeId = evt.target.id();
-  const d = evt.target.data();
-  const expanded = d.expanded;
-  const hasDeps = d.dep_count > 0;
-  const pinned = d.is_pinned;
-  document.getElementById('ctx-expand').style.display = (!expanded && hasDeps) ? 'block' : 'none';
-  document.getElementById('ctx-fold').style.display = (expanded && hasDeps) ? 'block' : 'none';
-  document.getElementById('ctx-pin').style.display = pinned ? 'none' : 'block';
-  document.getElementById('ctx-unpin').style.display = pinned ? 'block' : 'none';
-  ctxMenu.style.left = evt.originalEvent.clientX + 'px';
-  ctxMenu.style.top = evt.originalEvent.clientY + 'px';
-  ctxMenu.style.display = 'block';
-});
 
 document.addEventListener('click', () => { ctxMenu.style.display = 'none'; });
 
 document.getElementById('ctx-expand').addEventListener('click', async () => {
   ctxMenu.style.display = 'none';
   if (!ctxNodeId) return;
-  const view = await api('POST', 'expand/' + ctxNodeId);
-  applyView(view);
+  applyView(await api('POST', 'expand/' + ctxNodeId));
 });
-
 document.getElementById('ctx-fold').addEventListener('click', async () => {
   ctxMenu.style.display = 'none';
   if (!ctxNodeId) return;
-  const view = await api('POST', 'fold/' + ctxNodeId);
-  applyView(view);
+  applyView(await api('POST', 'fold/' + ctxNodeId));
 });
-
 document.getElementById('ctx-pin').addEventListener('click', async () => {
   ctxMenu.style.display = 'none';
   if (!ctxNodeId) return;
-  const view = await api('POST', 'pin/' + ctxNodeId);
-  applyView(view);
+  applyView(await api('POST', 'pin/' + ctxNodeId));
 });
-
 document.getElementById('ctx-unpin').addEventListener('click', async () => {
   ctxMenu.style.display = 'none';
   if (!ctxNodeId) return;
-  const view = await api('POST', 'unpin/' + ctxNodeId);
-  applyView(view);
+  applyView(await api('POST', 'unpin/' + ctxNodeId));
 });
-
 document.getElementById('ctx-remove').addEventListener('click', async () => {
   ctxMenu.style.display = 'none';
   if (!ctxNodeId) return;
-  const view = await api('POST', 'remove/' + ctxNodeId);
-  applyView(view);
+  applyView(await api('POST', 'remove/' + ctxNodeId));
 });
 
-// -- Tooltip on hover --
+// =====================================================================
+// Tooltip
+// =====================================================================
 const tooltip = document.getElementById('tooltip');
 const ttLabel = document.getElementById('tt-label');
 const ttDetail = document.getElementById('tt-detail');
 
-cy.on('mouseover', 'node', function(evt) {
-  const d = evt.target.data();
-  ttLabel.textContent = d.label;
-  const parts = [
-    `<b>Type:</b> ${d.function_type}`,
-    `<b>Deps:</b> ${d.dep_count}`,
-  ];
-  if (d.config) parts.push(`<b>Config:</b> ${d.config}`);
-  parts.push(`<b>Lifecycle:</b> ${d.lifecycle_state || 'n/a'}`);
-  ttDetail.innerHTML = parts.join(' &nbsp;|&nbsp; ');
-  tooltip.style.display = 'block';
-});
-
-cy.on('mouseout', 'node', function() {
-  tooltip.style.display = 'none';
-});
-
-cy.on('mousemove', function(evt) {
-  if (tooltip.style.display === 'block') {
-    tooltip.style.left = (evt.originalEvent.clientX + 14) + 'px';
-    tooltip.style.top = (evt.originalEvent.clientY + 14) + 'px';
-  }
-});
-
-// -- Toolbar --
+// =====================================================================
+// Toolbar
+// =====================================================================
 document.getElementById('btn-refresh').addEventListener('click', async () => {
   const view = await api('POST', 'refresh');
-  cy.elements().remove();
-  await fetchTypes();  // Refresh also re-indexes types
+  graphNodes.clear(); graphEdges.clear();
+  await fetchTypes();
   applyView(view);
 });
 
 document.getElementById('btn-reset').addEventListener('click', async () => {
-  const view = await api('POST', 'reset');
-  applyView(view);
+  applyView(await api('POST', 'reset'));
 });
 
-document.getElementById('btn-redraw').addEventListener('click', () => {
-  relayout();
-});
+document.getElementById('btn-redraw').addEventListener('click', () => { relayout(); });
 
-document.getElementById('btn-fit').addEventListener('click', () => {
-  fitAvoidingPanels();
-});
+document.getElementById('btn-fit').addEventListener('click', () => { fitAvoidingPanels(); });
 
 function fitAvoidingPanels() {
   const pad = 30;
-  // Compute right padding to avoid the floating panels
   const fp = document.getElementById('filter-panel');
   const vc = document.getElementById('view-controls');
   const panelWidth = Math.max(fp ? fp.offsetWidth : 0, vc ? vc.offsetWidth : 0);
-  const rightPad = panelWidth + pad + 10; // 10px gap
-  // Use asymmetric padding: fit with uniform pad, then shift viewport left
-  cy.fit(undefined, pad);
-  // Now shift pan to add extra right clearance
-  const w = cy.width();
-  if (rightPad > pad && w > 0) {
-    const extraPx = rightPad - pad;
-    const zoom = cy.zoom();
-    const pan = cy.pan();
-    // Shift left by half the extra pixel space (to center in remaining area)
-    cy.pan({ x: pan.x - (extraPx / 2) * zoom, y: pan.y });
-    // Zoom out slightly to fit within the reduced width
-    const scale = (w - rightPad) / (w - pad);
-    if (scale > 0 && scale < 1) {
-      const cx = w / 2, cyy = cy.height() / 2;
-      cy.zoom({ level: zoom * scale, renderedPosition: { x: cx, y: cyy } });
-    }
+  const rightReserved = panelWidth + 10;
+
+  // Compute bounding box of all visible nodes
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const id of visibleNodes) {
+    const nd = graphNodes.get(id);
+    if (!nd) continue;
+    const hw = (nd._w || 0) / 2, hh = (nd._h || 0) / 2;
+    minX = Math.min(minX, nd.x - hw); maxX = Math.max(maxX, nd.x + hw);
+    minY = Math.min(minY, nd.y - hh); maxY = Math.max(maxY, nd.y + hh);
   }
+  if (!isFinite(minX)) return;
+
+  const bw = maxX - minX, bh = maxY - minY;
+  const cw = container.clientWidth - rightReserved, ch = container.clientHeight;
+  const availW = Math.max(cw - 2 * pad, 1), availH = Math.max(ch - 2 * pad, 1);
+  const scale = Math.min(availW / (bw || 1), availH / (bh || 1), 2);
+  const tx = pad - minX * scale + (availW - bw * scale) / 2;
+  const ty = pad - minY * scale + (ch - 2 * pad - bh * scale) / 2;
+
+  svg.transition().duration(300).call(
+    zoomBehavior.transform,
+    d3.zoomIdentity.translate(tx, ty).scale(scale)
+  );
 }
 
-// -- Search --
+// =====================================================================
+// SVG Export
+// =====================================================================
+document.getElementById('btn-export-svg').addEventListener('click', () => {
+  const svgEl = svg.node();
+  const clone = svgEl.cloneNode(true);
+  // Add inline styles for export
+  const style = document.createElement('style');
+  style.textContent = `
+    .graph-node rect { rx: 6; ry: 6; stroke: #1a1a2e; stroke-width: 2; }
+    .graph-node.expanded rect { stroke: #e8d44d; stroke-width: 3; }
+    .graph-node.selected rect { stroke: #3498db; stroke-width: 4; }
+    .graph-node.leaf { opacity: 0.6; }
+    .graph-node text { fill: #e0e0e0; font-size: 9px; font-family: system-ui, sans-serif;
+      paint-order: stroke; stroke: #1a1a2e; stroke-width: 0.8px; }
+    .graph-edge line { stroke: #34495e; stroke-width: 1; marker-end: url(#arrowhead); }
+    .arrowhead, polygon { fill: #34495e; }
+    svg { background: #1a1a2e; }
+  `;
+  clone.insertBefore(style, clone.firstChild);
+  clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  const blob = new Blob([new XMLSerializer().serializeToString(clone)], { type: 'image/svg+xml' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'skyframe-graph.svg';
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+// =====================================================================
+// Search
+// =====================================================================
 const searchInput = document.getElementById('search-input');
 const searchResults = document.getElementById('search-results');
 const searchInfo = document.getElementById('search-info');
@@ -1027,9 +1179,7 @@ let searchIdx = -1;
 function updateSearchActive() {
   const items = searchResults.querySelectorAll('.sr-item');
   items.forEach((el, i) => el.classList.toggle('sr-active', i === searchIdx));
-  if (searchIdx >= 0 && searchIdx < items.length) {
-    items[searchIdx].scrollIntoView({ block: 'nearest' });
-  }
+  if (searchIdx >= 0 && searchIdx < items.length) items[searchIdx].scrollIntoView({ block: 'nearest' });
 }
 
 searchInput.addEventListener('input', () => {
@@ -1039,79 +1189,59 @@ searchInput.addEventListener('input', () => {
   if (q.length < 2) {
     searchResults.style.display = 'none';
     searchInfo.textContent = '';
-    cy.nodes().removeClass('search-hit');
+    searchHitNodes.clear();
+    renderGraph();
     return;
   }
   searchDebounce = setTimeout(() => doSearch(q), 250);
 });
 
 searchInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') {
-    searchResults.style.display = 'none';
-    searchInput.blur();
-    return;
-  }
+  if (e.key === 'Escape') { searchResults.style.display = 'none'; searchInput.blur(); return; }
   const items = searchResults.querySelectorAll('.sr-item');
   if (!items.length) return;
-  if (e.key === 'ArrowDown') {
-    e.preventDefault();
-    searchIdx = Math.min(searchIdx + 1, items.length - 1);
-    updateSearchActive();
-  } else if (e.key === 'ArrowUp') {
-    e.preventDefault();
-    searchIdx = Math.max(searchIdx - 1, 0);
-    updateSearchActive();
-  } else if (e.key === 'Enter') {
-    e.preventDefault();
-    if (searchIdx >= 0 && searchIdx < items.length) {
-      items[searchIdx].click();
-    }
-  }
+  if (e.key === 'ArrowDown') { e.preventDefault(); searchIdx = Math.min(searchIdx + 1, items.length - 1); updateSearchActive(); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); searchIdx = Math.max(searchIdx - 1, 0); updateSearchActive(); }
+  else if (e.key === 'Enter') { e.preventDefault(); if (searchIdx >= 0 && searchIdx < items.length) items[searchIdx].click(); }
 });
 
 document.addEventListener('click', (e) => {
-  if (!document.getElementById('search-wrap').contains(e.target)) {
-    searchResults.style.display = 'none';
-  }
+  if (!document.getElementById('search-wrap').contains(e.target)) searchResults.style.display = 'none';
 });
 
 async function doSearch(query) {
   try {
     const resp = await fetch(`/api/search?q=${encodeURIComponent(query)}&max_results=20`);
     if (!resp.ok) return;
-    const data = await resp.json();
-    renderSearchResults(data, query);
-  } catch (err) {
-    console.error('Search failed:', err);
-  }
+    renderSearchResults(await resp.json(), query);
+  } catch (err) { console.error('Search failed:', err); }
 }
 
 function renderSearchResults(data, query) {
   searchResults.innerHTML = '';
   searchIdx = -1;
-  cy.nodes().removeClass('search-hit');
+  searchHitNodes.clear();
 
   if (data.nodes.length === 0) {
     searchInfo.textContent = 'No matches';
     searchResults.style.display = 'none';
+    renderGraph();
     return;
   }
 
-  const matchText = data.has_more
+  searchInfo.textContent = data.has_more
     ? `${data.nodes.length} of ${data.total_matches} matches (refine query)`
     : `${data.total_matches} match${data.total_matches > 1 ? 'es' : ''}`;
-  searchInfo.textContent = matchText;
 
-  // Highlight nodes already in the graph
   for (const n of data.nodes) {
-    const el = cy.getElementById(String(n.id));
-    if (el.length) el.addClass('search-hit');
+    if (graphNodes.has(String(n.id))) searchHitNodes.add(String(n.id));
   }
+  renderGraph();
 
   for (const n of data.nodes) {
     const item = document.createElement('div');
     item.className = 'sr-item';
-    const inGraph = cy.getElementById(String(n.id)).length > 0;
+    const inGraph = graphNodes.has(String(n.id));
     const cfgBit = n.config ? ' ' + n.config : '';
     item.innerHTML = `
       <span class="sr-label">${escapeHtml(n.label)}${cfgBit}</span>
@@ -1124,42 +1254,60 @@ function renderSearchResults(data, query) {
   if (data.has_more) {
     const more = document.createElement('div');
     more.className = 'sr-more';
-    more.textContent = `Showing ${data.nodes.length} of ${data.total_matches} — refine your query for more`;
+    more.textContent = `Showing ${data.nodes.length} of ${data.total_matches} \u2014 refine your query for more`;
     searchResults.appendChild(more);
   }
-
   searchResults.style.display = 'block';
 }
 
 async function expandSearchResult(nodeId) {
   searchResults.style.display = 'none';
   try {
-    // Pin the node (adds it to view), then expand it.
     await api('POST', 'pin/' + nodeId);
     const view = await api('POST', 'expand/' + nodeId);
     applyView(view);
-    // Flash the node
     setTimeout(() => {
-      const el = cy.getElementById(String(nodeId));
-      if (el.length) {
-        el.addClass('search-hit');
-        cy.animate({ center: { eles: el }, zoom: cy.zoom() }, { duration: 300 });
+      searchHitNodes.add(String(nodeId));
+      renderGraph();
+      // Center on node
+      const nd = graphNodes.get(String(nodeId));
+      if (nd) {
+        const cw = container.clientWidth, ch = container.clientHeight;
+        svg.transition().duration(300).call(
+          zoomBehavior.transform,
+          d3.zoomIdentity.translate(cw / 2 - nd.x, ch / 2 - nd.y)
+        );
       }
     }, 350);
-  } catch (err) {
-    console.error('Expand from search failed:', err);
-  }
+  } catch (err) { console.error('Expand from search failed:', err); }
 }
 
-function escapeHtml(s) {
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
+// =====================================================================
+// Initial load
+// =====================================================================
+function syncUIFromViewState() {
+  // Color toggle
+  const colorToggle = document.getElementById('vc-color-toggle');
+  colorToggle.checked = _viewState.colorMode === 'config';
+  document.getElementById('vc-color-left').classList.toggle('vc-active', !colorToggle.checked);
+  document.getElementById('vc-color-right').classList.toggle('vc-active', colorToggle.checked);
+  // Transitive toggle
+  const transToggle = document.getElementById('vc-trans-toggle');
+  transToggle.checked = _viewState.hideTransitive;
+  document.getElementById('vc-trans-left').classList.toggle('vc-active', !transToggle.checked);
+  document.getElementById('vc-trans-right').classList.toggle('vc-active', transToggle.checked);
+  // Filter toggle
+  const filterToggle = document.getElementById('vc-filter-toggle');
+  filterToggle.checked = _viewState.filterEnabled;
+  document.getElementById('vc-filter-left').classList.toggle('vc-active', !filterToggle.checked);
+  document.getElementById('vc-filter-right').classList.toggle('vc-active', filterToggle.checked);
+  filterCollapsed = !_viewState.filterEnabled;
+  updateFilterFoldState();
 }
 
-// -- Initial load --
 (async function() {
   await fetchTypes();
+  syncUIFromViewState();
   const view = await api('GET', 'view');
   applyView(view);
 })();

@@ -53,6 +53,17 @@
   }
   #tooltip .tt-label { font-weight: bold; color: #e8d44d; margin-bottom: 4px; }
   #tooltip .tt-row { color: #bdc3c7; }
+  #ctx-menu {
+    display: none; position: fixed; z-index: 3000;
+    background: #16213e; border: 1px solid #0f3460; border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5); min-width: 140px;
+  }
+  .ctx-item {
+    padding: 6px 14px; cursor: pointer; font-size: 12px; color: #e0e0e0;
+  }
+  .ctx-item:hover { background: #1a5276; }
+  .ctx-item.danger { color: #e74c3c; }
+  .ctx-item.danger:hover { background: #5c1a1a; }
 </style>
 </head>
 <body>
@@ -72,6 +83,11 @@
 <div id="tooltip">
   <div class="tt-label" id="tt-label"></div>
   <div class="tt-row" id="tt-detail"></div>
+</div>
+<div id="ctx-menu">
+  <div class="ctx-item" id="ctx-expand">Expand</div>
+  <div class="ctx-item" id="ctx-fold">Fold</div>
+  <div class="ctx-item danger" id="ctx-remove">✖ Remove</div>
 </div>
 
 <script>
@@ -132,6 +148,12 @@ const cy = cytoscape({
         'border-color': '#e74c3c',
         'border-width': 4,
         'z-index': 10,
+      }
+    },
+    {
+      selector: 'node[?is_pinned]',
+      style: {
+        'shape': 'diamond',
       }
     },
     {
@@ -199,6 +221,7 @@ function applyView(view) {
       dep_count: n.dep_count,
       expanded: n.expanded,
       is_root: n.is_root,
+      is_pinned: n.is_pinned || false,
       lifecycle_state: n.lifecycle_state,
       color: typeColor(n.function_type),
     };
@@ -263,6 +286,45 @@ cy.on('tap', 'node', async function(evt) {
   } catch (err) {
     console.error('Action failed:', err);
   }
+});
+
+// -- Context menu (right-click) --
+const ctxMenu = document.getElementById('ctx-menu');
+let ctxNodeId = null;
+
+cy.on('cxttap', 'node', function(evt) {
+  evt.originalEvent.preventDefault();
+  ctxNodeId = evt.target.id();
+  const expanded = evt.target.data('expanded');
+  document.getElementById('ctx-expand').style.display = expanded ? 'none' : 'block';
+  document.getElementById('ctx-fold').style.display = expanded ? 'block' : 'none';
+  ctxMenu.style.left = evt.originalEvent.clientX + 'px';
+  ctxMenu.style.top = evt.originalEvent.clientY + 'px';
+  ctxMenu.style.display = 'block';
+});
+
+document.addEventListener('click', () => { ctxMenu.style.display = 'none'; });
+cy.on('tap', function(evt) { if (evt.target === cy) ctxMenu.style.display = 'none'; });
+
+document.getElementById('ctx-expand').addEventListener('click', async () => {
+  ctxMenu.style.display = 'none';
+  if (!ctxNodeId) return;
+  const view = await api('POST', 'expand/' + ctxNodeId);
+  applyView(view);
+});
+
+document.getElementById('ctx-fold').addEventListener('click', async () => {
+  ctxMenu.style.display = 'none';
+  if (!ctxNodeId) return;
+  const view = await api('POST', 'fold/' + ctxNodeId);
+  applyView(view);
+});
+
+document.getElementById('ctx-remove').addEventListener('click', async () => {
+  ctxMenu.style.display = 'none';
+  if (!ctxNodeId) return;
+  const view = await api('POST', 'remove/' + ctxNodeId);
+  applyView(view);
 });
 
 // -- Tooltip on hover --
@@ -399,6 +461,8 @@ function renderSearchResults(data, query) {
 async function expandSearchResult(nodeId) {
   searchResults.style.display = 'none';
   try {
+    // Pin the node (adds it to view), then expand it.
+    await api('POST', 'pin/' + nodeId);
     const view = await api('POST', 'expand/' + nodeId);
     applyView(view);
     // Flash the node

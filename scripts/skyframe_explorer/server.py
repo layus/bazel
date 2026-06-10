@@ -74,12 +74,13 @@ def grpc_address(address: str) -> str:
 
 
 class GraphModel:
-    """Holds cached node data and the set of expanded node IDs."""
+    """Holds cached node data, pinned nodes, and the set of expanded node IDs."""
 
     def __init__(self, stub: skyframe_graph_pb2_grpc.SkyframeGraphServiceStub):
         self.stub = stub
         self.node_cache: Dict[int, dict] = {}
         self.root_ids: List[int] = []
+        self.pinned: Set[int] = set()  # nodes explicitly added to the view
         self.expanded: Set[int] = set()
 
     # -- gRPC helpers -------------------------------------------------------
@@ -107,8 +108,9 @@ class GraphModel:
         resp = self.stub.RefreshIndex(skyframe_graph_pb2.RefreshIndexRequest())
         self.node_cache.clear()
         self.expanded.clear()
+        self.pinned.clear()
         self.clear_search_cache()
-        # Fetch roots
+        # Fetch roots into cache (but don't pin them — user searches to find them).
         roots = list(
             self.stub.GetRoots(
                 skyframe_graph_pb2.GetRootsRequest(filter=self.ALL_FIELDS)
@@ -180,9 +182,25 @@ class GraphModel:
 
     # -- State mutations ----------------------------------------------------
 
+    def pin(self, node_id: int):
+        """Pin a node so it appears in the view (e.g. from search results)."""
+        if node_id not in self.node_cache:
+            # Fetch it
+            resp = self.stub.GetNodes(
+                skyframe_graph_pb2.GetNodesRequest(
+                    ids=[node_id],
+                    filter=self.ALL_FIELDS,
+                )
+            )
+            for n in resp.nodes:
+                d = self._proto_to_dict(n)
+                self.node_cache[d["id"]] = d
+        self.pinned.add(node_id)
+
     def expand(self, node_id: int):
         if node_id not in self.node_cache:
             raise KeyError(f"Node {node_id} not in cache")
+        self.pinned.add(node_id)
         self._ensure_children(node_id)
         self.expanded.add(node_id)
 
@@ -193,13 +211,20 @@ class GraphModel:
         # Recursively fold descendants that are no longer reachable.
         self._prune_unreachable()
 
+    def remove(self, node_id: int):
+        """Remove a node from the view entirely."""
+        self.expanded.discard(node_id)
+        self.pinned.discard(node_id)
+        self._prune_unreachable()
+
     def reset(self):
         self.expanded.clear()
+        self.pinned.clear()
 
     def _prune_unreachable(self):
-        """Remove from expanded any node not reachable from roots via expanded chain."""
+        """Remove from expanded/pinned any node not reachable from pinned roots via expanded chain."""
         reachable: Set[int] = set()
-        stack = list(self.root_ids)
+        stack = list(self.pinned)
         while stack:
             nid = stack.pop()
             if nid in reachable:
@@ -216,8 +241,8 @@ class GraphModel:
     def compute_view(self) -> dict:
         """Return the full set of visible nodes + edges."""
         visible_ids: Set[int] = set()
-        # Roots are always visible.
-        visible_ids.update(self.root_ids)
+        # Pinned nodes are always visible.
+        visible_ids.update(self.pinned)
         # Children of expanded nodes are visible.
         for nid in list(self.expanded):
             node = self.node_cache.get(nid)
@@ -240,6 +265,7 @@ class GraphModel:
                     "dep_count": len(nd["dep_ids"]),
                     "expanded": nid in self.expanded,
                     "is_root": nid in root_set,
+                    "is_pinned": nid in self.pinned,
                     "lifecycle_state": nd["lifecycle_state"],
                 }
             )
@@ -318,6 +344,20 @@ async def api_expand(node_id: int):
 async def api_fold(node_id: int):
     old_ids = {n["id"] for n in model.compute_view()["nodes"]}
     model.fold(node_id)
+    return model.compute_view_with_delta(old_ids)
+
+
+@app.post("/api/remove/{node_id}")
+async def api_remove(node_id: int):
+    old_ids = {n["id"] for n in model.compute_view()["nodes"]}
+    model.remove(node_id)
+    return model.compute_view_with_delta(old_ids)
+
+
+@app.post("/api/pin/{node_id}")
+async def api_pin(node_id: int):
+    old_ids = {n["id"] for n in model.compute_view()["nodes"]}
+    model.pin(node_id)
     return model.compute_view_with_delta(old_ids)
 
 

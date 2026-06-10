@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Skyframe Graph Explorer</title>
+<script src="https://unpkg.com/cytoscape@3.30.4/dist/cytoscape.min.js"></script>
+<script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
+<script src="https://unpkg.com/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, sans-serif; background: #1a1a2e; color: #e0e0e0; }
+  #toolbar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 8px 16px; background: #16213e; border-bottom: 1px solid #0f3460;
+  }
+  #toolbar button {
+    padding: 6px 14px; border: 1px solid #0f3460; border-radius: 4px;
+    background: #0f3460; color: #e0e0e0; cursor: pointer; font-size: 13px;
+  }
+  #toolbar button:hover { background: #1a5276; }
+  #stats { margin-left: auto; font-size: 12px; color: #7f8c8d; }
+  #cy { width: 100%; height: calc(100vh - 44px); }
+  #tooltip {
+    display: none; position: fixed; padding: 8px 12px;
+    background: #16213e; border: 1px solid #0f3460; border-radius: 6px;
+    font-size: 12px; max-width: 500px; pointer-events: none;
+    z-index: 1000; box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  }
+  #tooltip .tt-label { font-weight: bold; color: #e8d44d; margin-bottom: 4px; }
+  #tooltip .tt-row { color: #bdc3c7; }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <button id="btn-refresh">&#x21bb; Refresh</button>
+  <button id="btn-reset">Reset</button>
+  <button id="btn-fit">Fit</button>
+  <span id="stats"></span>
+</div>
+<div id="cy"></div>
+<div id="tooltip">
+  <div class="tt-label" id="tt-label"></div>
+  <div class="tt-row" id="tt-detail"></div>
+</div>
+
+<script>
+// -- Color palette for function types --
+const TYPE_COLORS = {};
+const PALETTE = [
+  '#e74c3c','#3498db','#2ecc71','#e67e22','#9b59b6',
+  '#1abc9c','#f1c40f','#e84393','#00cec9','#6c5ce7',
+  '#fd79a8','#00b894','#fdcb6e','#74b9ff','#a29bfe',
+];
+function typeColor(ft) {
+  if (!ft) return '#7f8c8d';
+  if (!(ft in TYPE_COLORS)) {
+    TYPE_COLORS[ft] = PALETTE[Object.keys(TYPE_COLORS).length % PALETTE.length];
+  }
+  return TYPE_COLORS[ft];
+}
+
+// -- Cytoscape init --
+const cy = cytoscape({
+  container: document.getElementById('cy'),
+  style: [
+    {
+      selector: 'node',
+      style: {
+        'label': 'data(shortLabel)',
+        'text-valign': 'center',
+        'text-halign': 'center',
+        'font-size': '9px',
+        'color': '#e0e0e0',
+        'text-outline-color': '#1a1a2e',
+        'text-outline-width': 1,
+        'background-color': 'data(color)',
+        'border-width': 2,
+        'border-color': '#1a1a2e',
+        'width': 'label',
+        'height': 30,
+        'padding': '8px',
+        'shape': 'round-rectangle',
+        'text-wrap': 'ellipsis',
+        'text-max-width': '160px',
+      }
+    },
+    {
+      selector: 'node[?expanded]',
+      style: {
+        'border-color': '#e8d44d',
+        'border-width': 3,
+      }
+    },
+    {
+      selector: 'node[dep_count = 0]',
+      style: { 'opacity': 0.6 }
+    },
+    {
+      selector: 'edge',
+      style: {
+        'width': 1,
+        'line-color': '#34495e',
+        'target-arrow-color': '#34495e',
+        'target-arrow-shape': 'triangle',
+        'curve-style': 'bezier',
+        'arrow-scale': 0.6,
+      }
+    },
+  ],
+  layout: { name: 'preset' },
+  wheelSensitivity: 0.3,
+});
+
+// -- Helpers --
+function shortLabel(label, maxLen = 40) {
+  if (label.length <= maxLen) return label;
+  return label.substring(0, maxLen - 1) + '\u2026';
+}
+
+function updateStats(view) {
+  const s = view.stats || {};
+  document.getElementById('stats').textContent =
+    `Visible: ${s.total_visible || 0} | Cached: ${s.total_cached || 0}`;
+}
+
+async function api(method, path) {
+  const resp = await fetch('/api/' + path, { method });
+  if (!resp.ok) throw new Error(`API error: ${resp.status}`);
+  return resp.json();
+}
+
+// -- Render view --
+function applyView(view) {
+  const existingIds = new Set(cy.nodes().map(n => n.id()));
+  const newIds = new Set(view.nodes.map(n => String(n.id)));
+  const addedSet = new Set((view.added_node_ids || []).map(String));
+  const removedSet = new Set((view.removed_node_ids || []).map(String));
+
+  // Remove nodes no longer visible
+  const toRemove = cy.nodes().filter(n => !newIds.has(n.id()));
+  toRemove.remove();
+
+  // Remove edges that are no longer in the view
+  const edgeSet = new Set(view.edges.map(e => e.source + '->' + e.target));
+  const staleEdges = cy.edges().filter(e => {
+    const key = e.source().id() + '->' + e.target().id();
+    return !edgeSet.has(key);
+  });
+  staleEdges.remove();
+
+  // Add/update nodes
+  for (const n of view.nodes) {
+    const sid = String(n.id);
+    const data = {
+      id: sid,
+      label: n.label,
+      shortLabel: shortLabel(n.label),
+      function_type: n.function_type,
+      is_done: n.is_done,
+      dep_count: n.dep_count,
+      expanded: n.expanded,
+      is_root: n.is_root,
+      lifecycle_state: n.lifecycle_state,
+      color: typeColor(n.function_type),
+    };
+    const existing = cy.getElementById(sid);
+    if (existing.length) {
+      existing.data(data);
+    } else {
+      cy.add({ group: 'nodes', data });
+    }
+  }
+
+  // Add edges
+  for (const e of view.edges) {
+    const eid = e.source + '->' + e.target;
+    if (!cy.getElementById(eid).length) {
+      cy.add({
+        group: 'edges',
+        data: { id: eid, source: String(e.source), target: String(e.target) },
+      });
+    }
+  }
+
+  // Animate added nodes
+  const addedNodes = cy.nodes().filter(n => addedSet.has(n.id()));
+  if (addedNodes.length) {
+    addedNodes.style('opacity', 0);
+    addedNodes.animate({ style: { opacity: 1 } }, { duration: 300 });
+  }
+
+  updateStats(view);
+  relayout();
+}
+
+function relayout() {
+  cy.layout({
+    name: 'dagre',
+    rankDir: 'TB',
+    spacingFactor: 1.1,
+    animate: true,
+    animationDuration: 300,
+    nodeDimensionsIncludeLabels: true,
+  }).run();
+}
+
+// -- Node click: expand/fold --
+cy.on('tap', 'node', async function(evt) {
+  const node = evt.target;
+  const nid = node.id();
+  const expanded = node.data('expanded');
+  const depCount = node.data('dep_count');
+
+  if (depCount === 0) return; // leaf node, nothing to do
+
+  try {
+    let view;
+    if (expanded) {
+      view = await api('POST', 'fold/' + nid);
+    } else {
+      view = await api('POST', 'expand/' + nid);
+    }
+    applyView(view);
+  } catch (err) {
+    console.error('Action failed:', err);
+  }
+});
+
+// -- Tooltip on hover --
+const tooltip = document.getElementById('tooltip');
+const ttLabel = document.getElementById('tt-label');
+const ttDetail = document.getElementById('tt-detail');
+
+cy.on('mouseover', 'node', function(evt) {
+  const d = evt.target.data();
+  ttLabel.textContent = d.label;
+  ttDetail.innerHTML = [
+    `<b>ID:</b> ${d.id}`,
+    `<b>Type:</b> ${d.function_type}`,
+    `<b>Done:</b> ${d.is_done}`,
+    `<b>Lifecycle:</b> ${d.lifecycle_state || 'n/a'}`,
+    `<b>Deps:</b> ${d.dep_count}`,
+    `<b>Expanded:</b> ${d.expanded}`,
+  ].join(' &nbsp;|&nbsp; ');
+  tooltip.style.display = 'block';
+});
+
+cy.on('mouseout', 'node', function() {
+  tooltip.style.display = 'none';
+});
+
+cy.on('mousemove', function(evt) {
+  if (tooltip.style.display === 'block') {
+    tooltip.style.left = (evt.originalEvent.clientX + 14) + 'px';
+    tooltip.style.top = (evt.originalEvent.clientY + 14) + 'px';
+  }
+});
+
+// -- Toolbar --
+document.getElementById('btn-refresh').addEventListener('click', async () => {
+  const view = await api('POST', 'refresh');
+  cy.elements().remove();
+  applyView(view);
+});
+
+document.getElementById('btn-reset').addEventListener('click', async () => {
+  const view = await api('POST', 'reset');
+  applyView(view);
+});
+
+document.getElementById('btn-fit').addEventListener('click', () => {
+  cy.fit(undefined, 30);
+});
+
+// -- Initial load --
+(async function() {
+  const view = await api('GET', 'view');
+  applyView(view);
+})();
+</script>
+</body>
+</html>

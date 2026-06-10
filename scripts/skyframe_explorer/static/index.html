@@ -637,45 +637,52 @@ function applyTransitiveFilter() {
       });
       return;
     }
-    // Build adjacency from visible edges: for each node, its set of direct children
+    // Transitive reduction: hide edge A→C if C is reachable from A
+    // via paths of length ≥ 2 through the FULL adjacency graph.
+    // 1. Build full adjacency from visible edges
     const visibleEdges = cy.edges().filter(e =>
       e.source().style('display') !== 'none' && e.target().style('display') !== 'none'
     );
-    // children[src] = Set of direct target ids
-    const children = {};
+    const adj = {};  // adj[node] = Set of direct successors
     visibleEdges.forEach(e => {
       const s = e.source().id(), t = e.target().id();
-      if (!children[s]) children[s] = new Set();
-      children[s].add(t);
+      if (!adj[s]) adj[s] = new Set();
+      adj[s].add(t);
     });
-    // For edge A→C: it is transitive if there exists a B where A→B and B can reach C
-    // through a chain of other edges (i.e. A→C is redundant).
-    // Efficient: A→C is redundant if any other child B of A (B≠C) can reach C.
-    // We do BFS from A through children, excluding the direct A→C edge.
-    function isRedundant(src, tgt) {
-      const kids = children[src];
-      if (!kids || kids.size <= 1) return false;
-      // BFS from all other children of src
-      const visited = new Set();
-      const queue = [];
-      for (const b of kids) {
-        if (b !== tgt) { queue.push(b); visited.add(b); }
-      }
-      while (queue.length > 0) {
-        const cur = queue.shift();
-        if (cur === tgt) return true;
-        const next = children[cur];
-        if (next) {
-          for (const n of next) {
-            if (!visited.has(n)) { visited.add(n); queue.push(n); }
+    // 2. For each node, compute its full reachability set (BFS/DFS)
+    //    and cache it (memoize).
+    const reachCache = {};
+    function reachableFrom(node) {
+      if (reachCache[node]) return reachCache[node];
+      const reached = new Set();
+      const stack = [node];
+      while (stack.length > 0) {
+        const cur = stack.pop();
+        const succs = adj[cur];
+        if (succs) {
+          for (const s of succs) {
+            if (!reached.has(s)) { reached.add(s); stack.push(s); }
           }
         }
       }
-      return false;
+      reachCache[node] = reached;
+      return reached;
     }
+    // 3. Edge A→C is redundant if any OTHER direct successor B of A
+    //    (B ≠ C) can reach C through the full graph.
     visibleEdges.forEach(e => {
-      const s = e.source().id(), t = e.target().id();
-      e.style('display', isRedundant(s, t) ? 'none' : 'element');
+      const src = e.source().id(), tgt = e.target().id();
+      const kids = adj[src];
+      let redundant = false;
+      if (kids && kids.size > 1) {
+        for (const b of kids) {
+          if (b !== tgt && reachableFrom(b).has(tgt)) {
+            redundant = true;
+            break;
+          }
+        }
+      }
+      e.style('display', redundant ? 'none' : 'element');
     });
   });
 }

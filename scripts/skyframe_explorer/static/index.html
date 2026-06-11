@@ -630,7 +630,7 @@ function computeTransitiveReduction() {
 // =====================================================================
 function relayout() {
   const g = new dagre.graphlib.Graph();
-  g.setGraph({ rankdir: 'LR', align: 'DL', ranksep: 80, nodesep: 14, edgesep: 8 });
+  g.setGraph({ rankdir: 'LR', align: 'DL', ranksep: 26.67, nodesep: 4.67, edgesep: 2.67 });
   g.setDefaultEdgeLabel(() => ({}));
 
   for (const id of visibleNodes) {

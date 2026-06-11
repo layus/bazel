@@ -1,4 +1,4 @@
-# Skyframe Graph Explorer — UX Specification
+# Skyscrape — UX Specification
 
 ## Visual Theme
 

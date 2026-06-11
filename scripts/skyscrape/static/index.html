@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Skyframe Graph Explorer</title>
+<title>Skyscrape</title>
 <script src="https://unpkg.com/d3@7/dist/d3.min.js"></script>
 <script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
 <style>
@@ -246,7 +246,7 @@
 
 <script>
 // =====================================================================
-// Skyframe Graph Explorer – D3 + SVG renderer
+// Skyscrape – D3 + SVG renderer
 // =====================================================================
 
 // -- Color palettes --
@@ -1162,7 +1162,7 @@ document.getElementById('btn-export-svg').addEventListener('click', () => {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'skyframe-graph.svg';
+  a.download = 'skyscrape-graph.svg';
   a.click();
   URL.revokeObjectURL(url);
 });

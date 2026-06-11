@@ -1,4 +1,4 @@
-# Skyframe Graph Explorer — Invariants
+# Skyscrape — Invariants
 
 Hard rules the system must maintain.  Violations are bugs.
 

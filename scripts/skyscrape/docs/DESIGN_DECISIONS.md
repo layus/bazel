@@ -1,4 +1,4 @@
-# Skyframe Graph Explorer — Design Decisions
+# Skyscrape — Design Decisions
 
 This document records key design choices and their rationale.
 

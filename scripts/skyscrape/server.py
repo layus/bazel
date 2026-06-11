@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Skyframe Graph Explorer — FastAPI backend.
+"""Skyscrape — FastAPI backend.
 
 MVC-style: this module is the Model (node cache, expanded set) and Controller
 (expand/fold/reset endpoints).  The View is static/index.html.
@@ -461,7 +461,7 @@ async def lifespan(app):
     yield
 
 
-app = FastAPI(title="Skyframe Graph Explorer", lifespan=lifespan)
+app = FastAPI(title="Skyscrape", lifespan=lifespan)
 
 
 @app.get("/")
@@ -585,7 +585,7 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 def main():
     global model
 
-    parser = argparse.ArgumentParser(description="Skyframe Graph Explorer")
+    parser = argparse.ArgumentParser(description="Skyscrape")
     parser.add_argument("address", nargs="?", help="gRPC host:port")
     parser.add_argument("--output_base", default=None)
     parser.add_argument("--port", type=int, default=8050)
@@ -615,7 +615,7 @@ def main():
         print(f"  {len(model.root_ids)} roots cached", file=sys.stderr)
 
     # Generate self-signed certificate
-    cert_dir = tempfile.mkdtemp(prefix="skyframe_explorer_")
+    cert_dir = tempfile.mkdtemp(prefix="skyscrape_")
     cert_file = os.path.join(cert_dir, "cert.pem")
     key_file = os.path.join(cert_dir, "key.pem")
     subprocess.run(
@@ -633,7 +633,7 @@ def main():
             "365",
             "-nodes",
             "-subj",
-            "/CN=skyframe-explorer",
+            "/CN=skyscrape",
         ],
         check=True,
         capture_output=True,

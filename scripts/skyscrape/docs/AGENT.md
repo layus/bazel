@@ -1,6 +1,6 @@
-# Agent Instructions — Skyframe Graph Explorer
+# Agent Instructions — Skyscrape
 
-You are working on the Skyframe Graph Explorer, a web app for exploring
+You are working on Skyscrape, a web app for exploring
 Bazel's Skyframe dependency graph.
 
 ## Documentation Maintenance

@@ -1,4 +1,4 @@
-# Skyframe Graph Explorer — Architecture
+# Skyscrape — Architecture
 
 ## Overview
 
@@ -125,7 +125,7 @@ Single HTML file containing all CSS, markup, and JavaScript.
 ## File Layout
 
 ```
-scripts/skyframe_explorer/
+scripts/skyscrape/
 ├── server.py                 # Backend (Model + Controller)
 ├── static/
 │   └── index.html            # Frontend (View) — all-in-one HTML/CSS/JS

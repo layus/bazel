@@ -9,6 +9,7 @@ import argparse
 from contextlib import asynccontextmanager
 import functools
 import getpass
+import hashlib
 import os
 import pathlib
 import re
@@ -33,36 +34,75 @@ import skyframe_graph_pb2_grpc
 # ---------------------------------------------------------------------------
 
 
-def find_server_address(output_base: Optional[str] = None) -> Optional[str]:
-    if output_base:
-        port_file = os.path.join(output_base, "server", "command_port")
-        if os.path.isfile(port_file):
-            with open(port_file) as f:
-                return f.read().strip()
-        return None
-
-    user = getpass.getuser()
-    base_dir = pathlib.Path.home() / ".cache" / "bazel" / f"_bazel_{user}"
-    if not base_dir.is_dir():
-        return None
-    candidates = []
-    for d in base_dir.iterdir():
-        pf = d / "server" / "command_port"
-        if pf.is_file():
-            try:
-                addr = pf.read_text().strip()
-                if addr:
-                    candidates.append((d.name, addr))
-            except OSError:
-                pass
-    if len(candidates) == 1:
-        return candidates[0][1]
-    if len(candidates) > 1:
-        print("Multiple Bazel servers found:", file=sys.stderr)
-        for name, addr in candidates:
-            print(f"  {name}  ->  {addr}", file=sys.stderr)
-        print("Use --output_base or --address.", file=sys.stderr)
+def find_workspace_root(cwd: Optional[str] = None) -> Optional[str]:
+    """Find the Bazel workspace root by walking up from CWD to find MODULE.bazel.
+    
+    Returns the absolute path to the workspace directory, or None if not found.
+    """
+    if cwd is None:
+        cwd = os.getcwd()
+    
+    current = os.path.abspath(cwd)
+    while True:
+        module_bazel = os.path.join(current, "MODULE.bazel")
+        if os.path.isfile(module_bazel):
+            return current
+        
+        parent = os.path.dirname(current)
+        if parent == current:  # reached root
+            break
+        current = parent
+    
     return None
+
+
+def compute_output_base_hash(workspace_path: str) -> str:
+    """Compute the Bazel output base directory hash for a workspace path.
+    
+    Bazel uses an MD5 hash of the canonical workspace path to name the output
+    base directory in ~/.cache/bazel/_bazel_<user>/.
+    """
+    # Normalize the path to use forward slashes and remove trailing slash
+    normalized = workspace_path.replace("\\", "/").rstrip("/")
+    # Compute MD5 hash
+    return hashlib.md5(normalized.encode()).hexdigest()
+
+
+def find_server_address(output_base: Optional[str] = None) -> str:
+    """Find the Bazel server address from the command_port file.
+
+    If output_base is provided, look there. Otherwise, detect from workspace
+    and find the corresponding output_base directory.
+
+    Exits with error if the file cannot be found.
+    """
+    # Determine port_file location
+    if not output_base:
+        # Detect workspace and find corresponding output_base
+        workspace_root = find_workspace_root()
+        if not workspace_root:
+            print("ERROR: No MODULE.bazel found in current directory or parent directories.", file=sys.stderr)
+            print("  Are you in a Bazel workspace?", file=sys.stderr)
+            sys.exit(1)
+
+        workspace_hash = compute_output_base_hash(workspace_root)
+        user = getpass.getuser()
+        base_dir = pathlib.Path.home() / ".cache" / "bazel" / f"_bazel_{user}"
+        output_base = str(base_dir / workspace_hash)
+
+    port_file = pathlib.Path(output_base) / "server" / "command_port"
+
+    # Read and return the address
+    if not port_file.is_file():
+        print(f"ERROR: server/command_port not found at {port_file}", file=sys.stderr)
+        print("  Make sure Bazel is running with the skyframe graph server enabled.", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        return port_file.read_text().strip()
+    except OSError as e:
+        print(f"ERROR: Failed to read {port_file}: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 def grpc_address(address: str) -> str:
@@ -556,10 +596,6 @@ def main():
     args = parser.parse_args()
 
     address = args.address or find_server_address(args.output_base)
-    if not address:
-        print("ERROR: Could not determine Bazel server address.", file=sys.stderr)
-        print("Pass it explicitly or use --output_base.", file=sys.stderr)
-        sys.exit(1)
 
     address = grpc_address(address)
     print(f"Connecting to Bazel gRPC at {address}", file=sys.stderr)

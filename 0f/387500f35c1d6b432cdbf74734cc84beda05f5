@@ -1,0 +1,23 @@
+src/main/java/com/google/devtools/build/lib/bazel/coverage/CoverageReportActionBuilder.java
+  b35801553922c9c0 103-106,108-112,228,230-231,233
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "0f387500f35c1d6b432cdbf74734cc84beda05f5",
+  "prompts": {
+    "b35801553922c9c0": {
+      "agent_id": {
+        "tool": "windsurf",
+        "id": "5445e1ee-1c7f-4240-87c4-06f7fbc2b21f",
+        "model": "Claude Opus 4.6"
+      },
+      "human_author": "Guillaume Maudoux",
+      "messages": [],
+      "total_additions": 13,
+      "total_deletions": 7,
+      "accepted_lines": 13,
+      "overriden_lines": 0
+    }
+  }
+}

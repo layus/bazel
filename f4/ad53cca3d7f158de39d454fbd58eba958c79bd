@@ -1,0 +1,37 @@
+src/main/java/com/google/devtools/build/lib/bazel/coverage/CoverageReportActionBuilder.java
+  b35801553922c9c0 105-109
+  fb777c3835bbe8db 104,225,227,229
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "f4ad53cca3d7f158de39d454fbd58eba958c79bd",
+  "prompts": {
+    "b35801553922c9c0": {
+      "agent_id": {
+        "tool": "windsurf",
+        "id": "5445e1ee-1c7f-4240-87c4-06f7fbc2b21f",
+        "model": "Claude Opus 4.6"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 5,
+      "total_deletions": 85,
+      "accepted_lines": 5,
+      "overriden_lines": 0
+    },
+    "fb777c3835bbe8db": {
+      "agent_id": {
+        "tool": "windsurf",
+        "id": "d5124c4e-b290-43b2-81e7-a13becc6a278",
+        "model": "SWE-1.6"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 96,
+      "total_deletions": 14,
+      "accepted_lines": 4,
+      "overriden_lines": 0
+    }
+  }
+}

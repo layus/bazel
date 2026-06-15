@@ -1,0 +1,25 @@
+src/test/shell/bazel/bazel_coverage_sh_test.sh
+  b35801553922c9c0 546-603
+src/main/java/com/google/devtools/build/lib/bazel/coverage/CoverageReportActionBuilder.java
+  b35801553922c9c0 103-106,108-112,228,230-231,233
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "d38d25a0a49812be2a34ca7bb59d6aba5766f365",
+  "prompts": {
+    "b35801553922c9c0": {
+      "agent_id": {
+        "tool": "windsurf",
+        "id": "5445e1ee-1c7f-4240-87c4-06f7fbc2b21f",
+        "model": "Claude Opus 4.6"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 116,
+      "total_deletions": 52,
+      "accepted_lines": 71,
+      "overriden_lines": 0
+    }
+  }
+}

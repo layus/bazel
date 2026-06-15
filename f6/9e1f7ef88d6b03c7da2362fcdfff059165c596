@@ -1,0 +1,39 @@
+src/main/java/com/google/devtools/build/lib/bazel/coverage/CoverageReportActionBuilder.java
+  b35801553922c9c0 105-109
+  fb777c3835bbe8db 104,225,227,229
+0001-Fix-NullPointerException-in-CoverageReportActionBuil.patch
+  fb777c3835bbe8db 1-70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "f69e1f7ef88d6b03c7da2362fcdfff059165c596",
+  "prompts": {
+    "b35801553922c9c0": {
+      "agent_id": {
+        "tool": "windsurf",
+        "id": "5445e1ee-1c7f-4240-87c4-06f7fbc2b21f",
+        "model": "Claude Opus 4.6"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 5,
+      "total_deletions": 15,
+      "accepted_lines": 5,
+      "overriden_lines": 0
+    },
+    "fb777c3835bbe8db": {
+      "agent_id": {
+        "tool": "windsurf",
+        "id": "d5124c4e-b290-43b2-81e7-a13becc6a278",
+        "model": "SWE-1.6"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 96,
+      "total_deletions": 14,
+      "accepted_lines": 74,
+      "overriden_lines": 0
+    }
+  }
+}
